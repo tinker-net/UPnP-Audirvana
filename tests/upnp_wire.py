@@ -137,6 +137,7 @@ logfilename = stderr
                     print(log.read_text(), file=sys.stderr)
                     server.shutdown()
             assert code == 0, code
+            assert "ContentDirectory::makerootdir" not in log.read_text()
 
 
 def check(location, host, events, media_requests):

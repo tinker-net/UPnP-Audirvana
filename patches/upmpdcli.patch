@@ -915,7 +915,7 @@ index 97e92c9..a15b47f 100644
      return UPNP_E_SUCCESS;
  }
 diff --git a/src/main.cxx b/src/main.cxx
-index 82ecd8d..6e28619 100644
+index 82ecd8d..46b91c0 100644
 --- a/src/main.cxx
 +++ b/src/main.cxx
 @@ -29,6 +29,9 @@
@@ -996,6 +996,15 @@ index 82ecd8d..6e28619 100644
      unsigned short upport = getIntOptionValue("upnpport", 0);
      if (getOptionValue("mpdport", value) && !value.empty()) {
          mpdport = atoi(value.c_str());
+@@ -441,7 +437,7 @@ int main(int argc, char *argv[])
+     // line option (see the enum comments near the top of the file):
+     bool inprocessms{false};
+     bool msonly{false};
+-    bool enableMediaServer = ContentDirectory::mediaServerNeeded();
++    const bool enableMediaServer = arg_msmode != RdrOnly && ContentDirectory::mediaServerNeeded();
+     switch (arg_msmode) {
+     case MSOnly:
+         inprocessms = true;
 @@ -679,10 +675,12 @@ int main(int argc, char *argv[])
                            LibUPnP::UPNPPINIT_OPTION_END)) {
              break;
