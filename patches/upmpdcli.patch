@@ -206,10 +206,64 @@ index ecdc160..0dda1a9 100644
        <name>A_ARG_TYPE_Channel</name>
        <dataType>string</dataType>
 diff --git a/src/avtransport.cxx b/src/avtransport.cxx
-index 6d90a98..46aebaf 100644
+index 6d90a98..04fddd5 100644
 --- a/src/avtransport.cxx
 +++ b/src/avtransport.cxx
-@@ -239,43 +239,13 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+@@ -19,7 +19,9 @@
+ 
+ #include "avtransport.hxx"
+ 
++#include <cstdio>
+ #include <functional>
++#include <limits>
+ #include <iostream>
+ #include <map>
+ #include <utility>
+@@ -34,7 +36,6 @@
+ #include "upmpdutils.hxx"
+ #include "smallut.h"
+ #include "conftree.h"
+-#include "urlmorph.hxx"
+ 
+ // For testing upplay with a dumb renderer.
+ // #define NO_SETNEXT
+@@ -119,6 +120,7 @@ enum AVTErrorCode {
+ const std::string AVTransport::serviceErrString(int error) const
+ {
+     switch(error) {
++    case 402: return "Invalid Args";
+     case UPNP_AV_AVT_INVALID_TRANSITION: return "AVTransport Invalid Transition";
+     case UPNP_AV_AVT_NO_CONTENTS: return "AVTransport No Contents";
+     case UPNP_AV_AVT_READ_ERROR: return "AVTransport Read Error";
+@@ -167,12 +169,16 @@ static string mpdsToPlaymode(const MpdStatus& mpds)
+ 
+ static string mpdsToTActions(const MpdStatus &mpds)
+ {
+-    string tactions("Next,Previous,");
++    string tactions;
+     switch(mpds.state) {
+     case MpdStatus::MPDS_PLAY: tactions += "Pause,Stop,Seek"; break;
+     case MpdStatus::MPDS_PAUSE: tactions += "Play,Stop,Seek"; break;
+-    default: tactions += "Play";
++    default: if (mpds.qlen > 0) tactions = "Play"; break;
+     }
++    if (mpds.songpos >= 0 && mpds.songpos + 1 < mpds.qlen)
++        tactions += tactions.empty() ? "Next" : ",Next";
++    if (mpds.songpos > 0)
++        tactions += tactions.empty() ? "Previous" : ",Previous";
+     return tactions;
+ }
+ 
+@@ -230,7 +236,7 @@ static string mpdsToTState(const MpdStatus &mpds)
+ // Prepare UPnP AVTransport state variables from our and MPD state.
+ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+ {
+-    const MpdStatus &mpds =  m_dev->getMpdStatus();
++    const MpdStatus &mpds =  m_dev->getmpdcli()->getStatus();
+     LOGDEB2("AVT::tpstateMToU: curpos: " << mpds.songpos << " qlen " << mpds.qlen << "\n");
+     bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
+     
+@@ -239,44 +245,14 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
      status["TransportStatus"] = m_dev->getmpdcli()->ok() ? "OK" : "ERROR_OCCURRED";
      status["TransportPlaySpeed"] = "1";
  
@@ -247,15 +301,18 @@ index 6d90a98..46aebaf 100644
 +    syncMetadata(mpds);
      /*testing m_curMetadata = "NOT_IMPLEMENTED";*/
      
-     status["CurrentTrack"] = "1";
+-    status["CurrentTrack"] = "1";
++    status["CurrentTrack"] = m_uri.empty() ? "0" : "1";
      string playmedium("NONE");
      if (is_song)
 -        playmedium = m_uri.find("http://") == 0 ? "HDD" : "NETWORK";
+-    status["NumberOfTracks"] = "1";
 +        playmedium = "NETWORK";
-     status["NumberOfTracks"] = "1";
++    status["NumberOfTracks"] = m_uri.empty() ? "0" : "1";
      status["CurrentMediaDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
      status["CurrentTrackDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
-@@ -313,9 +283,50 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+     status["CurrentTrackURI"] = m_uri;
+@@ -313,9 +289,52 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
      return true;
  }
  
@@ -277,17 +334,19 @@ index 6d90a98..46aebaf 100644
 +        URLDEB("AVT::tpstateMToU: radio playing, or current metadata from mpd: didlmake\n");
 +        m_curMetadata = didlmake(mpds.currentsong);
 +    } else {
-+        if (!uri.empty() && uri == m_nextUri) {
++        if (mpds.songid >= 0 && mpds.songid == m_nextId) {
 +            URLDEB("AVT::tpstateMToU m_uri is m_nextUri. Metadata -> nextMetadata\n");
 +            m_uri = m_nextUri;
 +            m_curMetadata = m_nextMetadata;
 +            m_nextUri.clear();
 +            m_nextMetadata.clear();
++            m_nextId = -1;
 +        } else if (!uri.empty() && uri != m_uri) {
 +            URLDEB("AVT::tpstateMToU: uri [" << uri << "] m_uri [" << m_uri << "]\n");
 +            // Someone else is controlling mpd. Maybe our own ohplaylist.
 +            m_nextMetadata.clear();
 +            m_nextUri.clear();
++            m_nextId = -1;
 +            m_uri = uri;
 +            if (!m_ohp || !m_ohp->cacheFind(uri, m_curMetadata)) {
 +                URLDEB("AVT::tpstateMToU: unexpected uri change: didlmake\n");
@@ -306,7 +365,7 @@ index 6d90a98..46aebaf 100644
      unordered_map<string, string> newtpstate;
      tpstateMToU(newtpstate);
      if (all)
-@@ -323,7 +334,7 @@ bool AVTransport::getEventData(bool all, std::vector<std::string>& names,
+@@ -323,19 +342,17 @@ bool AVTransport::getEventData(bool all, std::vector<std::string>& names,
  
      bool changefound = false;
  
@@ -315,7 +374,24 @@ index 6d90a98..46aebaf 100644
                     "<InstanceID val=\"0\">\n");
  
      for (const auto& [nm, newvalue] : newtpstate) {
-@@ -371,6 +382,7 @@ void AVTransport::onMpdEvent(const MpdStatus*)
+-        const string& oldvalue = mapget(m_tpstate, nm);
+-        if (newvalue == oldvalue)
++        if (nm == "RelativeTimePosition" || nm == "AbsoluteTimePosition")
++            continue;
++        const auto previous = m_tpstate.find(nm);
++        if (!all && previous != m_tpstate.end() && newvalue == previous->second)
+             continue;
+ 
+-        if (nm != "RelativeTimePosition" && nm != "AbsoluteTimePosition") {
+-            //LOGDEB("AVTransport: state update for " << it->first << 
+-            // " oldvalue [" << oldvalue << "] -> [" << it->second << "\n");
+-            changefound = true;
+-        }
++        changefound = true;
+ 
+         chgdata += "<";
+         chgdata += nm;
+@@ -371,32 +388,54 @@ void AVTransport::onMpdEvent(const MpdStatus*)
  // http://192.168.4.4:8200/MediaItems/246.mp3
  int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, bool setnext)
  {
@@ -323,54 +399,207 @@ index 6d90a98..46aebaf 100644
  #ifdef NO_SETNEXT
      // pretend not to support setnext:
      if (setnext) {
-@@ -385,6 +397,26 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
-         return UPNP_E_INVALID_PARAM;
+         LOGERR("SetNextAVTransportURI: faking error\n");
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ #endif
+ 
+     string uri;
+     bool found = setnext? sc.get("NextURI", &uri) : sc.get("CurrentURI", &uri);
+     if (!found) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
      }
  
+-    bool forcenocheck;
+-    if (!morphSpecialUrl(uri, forcenocheck)) {
+-        LOGERR("OHPlaylist::insert: bad uri: " << uri << "\n");
+-        return UPNP_E_INVALID_PARAM;
 +    if (uri.empty()) {
 +        auto *mpd = m_dev->getmpdcli();
 +        if (setnext) {
-+            const auto status = m_dev->getMpdStatus();
-+            if (status.songpos >= 0 && status.songpos + 1 < status.qlen &&
-+                !mpd->deletePosRange(status.songpos + 1, status.qlen))
-+                return UPNP_E_INTERNAL_ERROR;
++            const auto status = m_dev->getmpdcli()->getStatus(true);
++            const int next = status.songpos >= 0 ? status.songpos + 1 : 1;
++            if (next < status.qlen && !mpd->deletePosRange(next, status.qlen))
++                return UPNP_AV_AVT_READ_ERROR;
 +        } else {
 +            if (!mpd->clearQueue())
-+                return UPNP_E_INTERNAL_ERROR;
++                return UPNP_AV_AVT_READ_ERROR;
 +            m_uri.clear();
 +            m_curMetadata.clear();
 +        }
 +        m_nextUri.clear();
 +        m_nextMetadata.clear();
++        m_nextId = -1;
 +        return UPNP_E_SUCCESS;
-+    }
-+    if (uri.compare(0, 7, "http://") != 0 && uri.compare(0, 8, "https://") != 0)
-+        return UPNP_E_INVALID_PARAM;
-+
-     bool forcenocheck;
-     if (!morphSpecialUrl(uri, forcenocheck)) {
-         LOGERR("OHPlaylist::insert: bad uri: " << uri << "\n");
-@@ -522,7 +554,9 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+     }
++    const auto scheme = uri.find("://");
++    if (scheme == string::npos ||
++        (uri.substr(0, scheme) != "http" && uri.substr(0, scheme) != "https"))
++        return UPNP_AV_AVT_RESOURCE_NOT_FOUND;
++    const auto authority = scheme + 3;
++    if (authority == uri.size() || uri.find_first_of("/?#", authority) == authority ||
++        uri.find_first_of(" \t\r\n") != string::npos)
++        return UPNP_AV_AVT_RESOURCE_NOT_FOUND;
+     
+     string metadata;
+     found = setnext ? sc.get("NextURIMetaData", &metadata) : sc.get("CurrentURIMetaData", &metadata);
+     LOGDEB("Set(next)AVTransportURI: next " << setnext <<  " uri " << uri <<
+            " metadata[" << metadata << "]" << "\n");
+ 
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
+     const MpdStatus::State st = mpds.state;
+ 
+     // Check that we support the audio format for the input uri.
+@@ -404,7 +443,7 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+     if (!m_dev->checkContentFormat(uri, metadata, &metaformpd)) {
+         LOGERR("set(Next)AVTransportURI: unsupported format: uri " << uri <<
+                " metadata [" << metadata << "]\n");
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     bool is_song = (st == MpdStatus::MPDS_PLAY) || (st == MpdStatus::MPDS_PAUSE);
+@@ -413,13 +452,14 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+     LOGDEB1("AVTransport::set" << (setnext?"Next":"") << "AVTransportURI: curpos: " <<
+             curpos << " is_song " << is_song << " qlen " << mpds.qlen << "\n");
+ 
++    const int queueLength = mpds.qlen;
+     if ((m_dev->getopts().options & UpMpd::upmpdOwnQueue) && !setnext) {
+         // If we own the queue, just clear it before setting the
+         // track.  Else it's difficult to impossible to prevent it
+         // from growing if upmpdcli restarts. If the option is not set, the
+         // user prefers to live with the issue.
+-        m_dev->getmpdcli()->clearQueue();
+-        // mpds is now invalid!
++        if (!m_dev->getmpdcli()->clearQueue())
++            return UPNP_AV_AVT_READ_ERROR;
+         curpos = -1;
+     }
+ 
+@@ -443,35 +483,26 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+     }
+ 
+     if (setnext) {
+-        if (mpds.qlen == 0) {
+-            LOGDEB("setNextAVTransportURI invoked but empty queue!" << "\n");
+-            return UPNP_E_INVALID_PARAM;
+-        }
+-        if ((m_dev->getopts().options & UpMpd::upmpdOwnQueue) && mpds.qlen > 1) {
+-            // If we own the queue, make sure we only keep 2 songs in it:
+-            // guard against multiple setnext calls.
+-            int posend;
+-            for (posend = curpos + 1;; posend++) {
+-                UpSong nsong;
+-                if (!m_dev->getmpdcli()->statSong(nsong, posend))
+-                    break;
+-            }
+-            if (posend > curpos+1)
+-                m_dev->getmpdcli()->deletePosRange(curpos + 1, posend);
+-        }
++        if (queueLength == 0)
++            return UPNP_AV_AVT_NO_CONTENTS;
++        if ((m_dev->getopts().options & UpMpd::upmpdOwnQueue) && queueLength > curpos + 1 &&
++            !m_dev->getmpdcli()->deletePosRange(curpos + 1, queueLength))
++            return UPNP_AV_AVT_READ_ERROR;
+     }
+ 
+     int songid = m_dev->getmpdcli()->insert(uri, setnext ? curpos + 1 : curpos, metaformpd);
+     if (songid < 0) {
+-        return UPNP_E_INTERNAL_ERROR;
++        return UPNP_AV_AVT_READ_ERROR;
+     }
+ 
+     if (setnext) {
++        m_nextId = songid;
+         m_nextUri = uri;
+         m_nextMetadata = metadata;
+     } else {
+         m_uri = uri;
+         m_curMetadata = metadata;
++        m_nextId = -1;
+         m_nextUri.clear();
+         m_nextMetadata.clear();
+     }
+@@ -489,16 +520,9 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+         //  - BubbleUpnp: issues a Play
+         //  - MediaHouse: no setnext, Play
+         //  - Raumfeld: needs autoplay
+-        if (m_autoplay) {
+-            m_dev->getmpdcli()->play(curpos);
+-        } else {
+-            switch (st) {
+-            case MpdStatus::MPDS_PLAY: m_dev->getmpdcli()->play(curpos); break;
+-            case MpdStatus::MPDS_PAUSE: m_dev->getmpdcli()->pause(true); break;
+-            case MpdStatus::MPDS_STOP: m_dev->getmpdcli()->stop(); break;
+-            default: break;
+-            }
+-        }
++        if ((m_autoplay || st == MpdStatus::MPDS_PLAY) &&
++            !m_dev->getmpdcli()->play(curpos))
++            return UPNP_AV_AVT_READ_ERROR;
+         // Clean up old song ids
+         if (!(m_dev->getopts().options & UpMpd::upmpdOwnQueue)) {
+             for (auto id : m_songids) {
+@@ -522,14 +546,16 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
  
  int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
  {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
 +    std::lock_guard lock(m_state_mutex);
-     const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
 +    syncMetadata(mpds);
      LOGDEB1("AVTransport::getPositionInfo. State: "<<mpdsToTState(mpds)<<" ("<<mpds.state<<")\n");
  
      bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
-@@ -558,7 +592,9 @@ int AVTransport::getDeviceCapabilities(const SoapIncoming& sc, SoapOutgoing& dat
+-    data.addarg("Track", is_song ? "1" : "0");
++    data.addarg("Track", m_uri.empty() ? "0" : "1");
+     data.addarg("TrackDuration", is_song ? upnpduration(mpds.songlenms) : "00:00:00");
+     data.addarg("TrackMetaData", m_curMetadata);
+-    data.addarg("TrackURI", SoapHelp::xmlQuote(m_uri));
++    data.addarg("TrackURI", m_uri);
+     data.addarg("RelTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
+     data.addarg("AbsTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
+     data.addarg("RelCount", "0");
+@@ -539,7 +565,7 @@ int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
+ 
+ int AVTransport::getTransportInfo(const SoapIncoming& sc,SoapOutgoing& data)
+ {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
+     LOGDEB1("AVTransport::getTransportInfo. State: " << mpdsToTState(mpds) << "\n");
+ 
+     data.addarg("CurrentTransportState", mpdsToTState(mpds));
+@@ -558,27 +584,29 @@ int AVTransport::getDeviceCapabilities(const SoapIncoming& sc, SoapOutgoing& dat
  
  int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
  {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
 +    std::lock_guard lock(m_state_mutex);
-     const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
 +    syncMetadata(mpds);
      LOGDEB("AVTransport::getMediaInfo. State: " << mpds.state << "\n");
  
      bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
-@@ -578,7 +614,7 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+ 
+-    data.addarg("NrTracks", "1");
++    data.addarg("NrTracks", m_uri.empty() ? "0" : "1");
+     data.addarg("MediaDuration", is_song ? upnpduration(mpds.songlenms) : "00:00:00");
+ 
+-    data.addarg("CurrentURI", SoapHelp::xmlQuote(m_uri));
++    data.addarg("CurrentURI", m_uri);
+     data.addarg("CurrentURIMetaData", m_curMetadata);
+     if ((m_dev->getopts().options & UpMpd::upmpdOwnQueue)) {
+-        data.addarg("NextURI", SoapHelp::xmlQuote(m_nextUri));
++        data.addarg("NextURI", m_nextUri);
+         data.addarg("NextURIMetaData", m_nextMetadata);
+     } else {
+-        data.addarg("NextURI", SoapHelp::xmlQuote(mpds.nextsong.rsrc.uri));
++        data.addarg("NextURI", mpds.nextsong.rsrc.uri);
+         URLDEB("getMediaInfo: not ownqueue, didlmake if is_song: " << is_song << "\n");
+         data.addarg("NextURIMetaData", is_song ? didlmake(mpds.nextsong) : "");
      }
      string playmedium("NONE");
      if (!m_uri.empty())
@@ -379,16 +608,179 @@ index 6d90a98..46aebaf 100644
      data.addarg("PlayMedium", playmedium);
      data.addarg("RecordMedium", "NOT_IMPLEMENTED");
      data.addarg("WriteStatus", "NOT_IMPLEMENTED");
-@@ -588,6 +624,7 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -588,12 +616,13 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
  int AVTransport::playcontrol(
      const SoapIncoming& sc, SoapOutgoing& data, int what)
  {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
 +    std::lock_guard lock(m_state_mutex);
-     const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
      LOGDEB("AVTransport::playcontrol State: " << mpds.state << " what " << what << "\n");
  
+     if ((what & ~0x3)) {
+         LOGERR("UpMPd::playcontrol: bad control " << what << "\n");
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     bool ok = true;
+@@ -602,27 +631,29 @@ int AVTransport::playcontrol(
+         switch (what) {
+         case 0:
+             m_uri = m_curMetadata = m_nextUri = m_nextMetadata = "";
++            m_nextId = -1;
+             if (m_dev->getopts().options & UpMpd::upmpdOwnQueue) {
+                 ok = m_dev->getmpdcli()->clearQueue();
+             } else {
+                 ok = m_dev->getmpdcli()->stop(); 
+             }
+             break;
+-        case 1: ok = m_dev->getmpdcli()->play();break;
+-        case 2: ok = m_dev->getmpdcli()->togglePause();break;
++        case 1: break;
++        case 2: ok = m_dev->getmpdcli()->pause(true); break;
+         }
+         break;
+     case MpdStatus::MPDS_PAUSE:
+         switch (what) {
+         case 0:
+             m_uri = m_curMetadata = m_nextUri = m_nextMetadata = "";
++            m_nextId = -1;
+             if (m_dev->getopts().options & UpMpd::upmpdOwnQueue) {
+                 ok = m_dev->getmpdcli()->clearQueue();
+             } else {
+                 ok = m_dev->getmpdcli()->stop(); 
+             }
+             break;
+-        case 1: ok = m_dev->getmpdcli()->togglePause();break;
++        case 1: ok = m_dev->getmpdcli()->pause(false); break;
+         case 2: break;
+         }
+         break;
+@@ -630,30 +661,33 @@ int AVTransport::playcontrol(
+     default:
+         switch (what) {
+         case 0: break;
+-        case 1: ok = m_dev->getmpdcli()->play();break;
++        case 1:
++            if (mpds.qlen != 0)
++                ok = m_dev->getmpdcli()->play();
++            break;
+         case 2: break;
+         }
+         break;
+     }
+-    return ok ? UPNP_E_SUCCESS : UPNP_E_INTERNAL_ERROR;
++    return ok ? UPNP_E_SUCCESS : UPNP_AV_AVT_READ_ERROR;
+ }
+ 
+ int AVTransport::seqcontrol(const SoapIncoming& sc, SoapOutgoing& data, int what)
+ {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
+     LOGDEB("AVTransport::seqcontrol State: " << mpds.state << " what " << what << "\n");
+ 
+     if ((what & ~0x1)) {
+         LOGERR("UpMPd::seqcontrol: bad control " << what << "\n");
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     bool ok = true;
+     switch (what) {
+-    case 0: ok = m_dev->getmpdcli()->next();break;
+-    case 1: ok = m_dev->getmpdcli()->previous();break;
++    case 0: if (mpds.songpos >= 0 && mpds.songpos + 1 < mpds.qlen) ok = m_dev->getmpdcli()->next(); break;
++    case 1: if (mpds.songpos > 0) ok = m_dev->getmpdcli()->previous(); break;
+     }
+-    return ok ? UPNP_E_SUCCESS : UPNP_E_INTERNAL_ERROR;
++    return ok ? UPNP_E_SUCCESS : UPNP_AV_AVT_READ_ERROR;
+ }
+ 
+ /*
+@@ -668,7 +702,7 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+     string playmode;
+     if (!sc.get("NewPlayMode", &playmode)) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+     LOGDEB("AVTransport::setPlayMode: " << playmode << "\n");
+ 
+@@ -706,14 +740,14 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
+             m_dev->getmpdcli()->random(false) &&
+             m_dev->getmpdcli()->single(true);
+     } else {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+-    return ok ? UPNP_E_SUCCESS : UPNP_E_INTERNAL_ERROR;
++    return ok ? UPNP_E_SUCCESS : UPNP_AV_AVT_READ_ERROR;
+ }
+ 
+ int AVTransport::getTransportSettings(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
+     string playmode = mpdsToPlaymode(mpds);
+     data.addarg("PlayMode", playmode);
+     data.addarg("RecQualityMode", "NOT_IMPLEMENTED");
+@@ -722,7 +756,7 @@ int AVTransport::getTransportSettings(const SoapIncoming& sc, SoapOutgoing& data
+ 
+ int AVTransport::getCurrentTransportActions(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+-    const MpdStatus &mpds = m_dev->getMpdStatus();
++    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
+     data.addarg("Actions", mpdsToTActions(mpds));
+     return UPNP_E_SUCCESS;
+ }
+@@ -731,12 +765,12 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+     string unit;
+     if (!sc.get("Unit", &unit)) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+     
+     string target;
+     if (!sc.get("Target", &target)) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     //LOGDEB("AVTransport::seek: unit " << unit << " target " << target << 
+@@ -749,12 +783,26 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
+     // ABS_TIME to the whole media (ie for a multitrack tape). So
+     // take both ABS and REL as absolute position in the current song
+     if (!unit.compare("REL_TIME") || !unit.compare("ABS_TIME")) {
+-        abs_seconds = upnpdurationtos(target);
++        unsigned hours, minutes, seconds;
++        int parsed = 0;
++        if (std::sscanf(target.c_str(), "%6u:%2u:%2u%n",
++                        &hours, &minutes, &seconds, &parsed) != 3 ||
++            minutes > 59 || seconds > 59 || hours > 596522 ||
++            target.empty() || target[0] < '0' || target[0] > '9')
++            return UPNP_AV_AVT_ILLEGAL_SEEK_TARGET;
++        const auto suffix = target.substr(parsed);
++        if (!suffix.empty() && (suffix[0] != '.' || suffix.size() == 1 ||
++            suffix.find_first_not_of("0123456789", 1) != string::npos))
++            return UPNP_AV_AVT_ILLEGAL_SEEK_TARGET;
++        const auto total = 3600ULL * hours + 60 * minutes + seconds;
++        if (total > std::numeric_limits<int>::max())
++            return UPNP_AV_AVT_ILLEGAL_SEEK_TARGET;
++        abs_seconds = static_cast<int>(total);
+     } else {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+     LOGDEB("AVTransport::seek: seeking to " << abs_seconds << 
+            " seconds (" << upnpduration(abs_seconds * 1000) << ")" << "\n");
+ 
+-    return m_dev->getmpdcli()->seek(abs_seconds) ? UPNP_E_SUCCESS : UPNP_E_INTERNAL_ERROR;
++    return m_dev->getmpdcli()->seek(abs_seconds) ? UPNP_E_SUCCESS : UPNP_AV_AVT_ILLEGAL_SEEK_TARGET;
+ }
 diff --git a/src/avtransport.hxx b/src/avtransport.hxx
-index be89a5e..47788b2 100644
+index be89a5e..9df712e 100644
 --- a/src/avtransport.hxx
 +++ b/src/avtransport.hxx
 @@ -17,6 +17,7 @@
@@ -409,6 +801,36 @@ index be89a5e..47788b2 100644
      UpMpd *m_dev;
      UpMpdMediaRenderer *m_udev;
      OHPlaylist *m_ohp;
+@@ -70,6 +74,7 @@ private:
+     std::unordered_map<std::string, std::string> m_tpstate;
+     std::string m_uri;
+     std::string m_curMetadata;
++    int m_nextId = -1;
+     std::string m_nextUri;
+     std::string m_nextMetadata;
+     // My track identifiers (for cleaning up)
+diff --git a/src/conman.cxx b/src/conman.cxx
+index 97e92c9..a15b47f 100644
+--- a/src/conman.cxx
++++ b/src/conman.cxx
+@@ -78,7 +78,7 @@ int UpMpdConMan::getCurrentConnectionInfo(const SoapIncoming& sc, SoapOutgoing&
+ 
+     string conid;
+     if (!sc.get("ConnectionID", &conid) || conid.compare("0")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 706;
+     }
+ 
+     data.addarg("RcsID", "0");
+@@ -87,7 +87,7 @@ int UpMpdConMan::getCurrentConnectionInfo(const SoapIncoming& sc, SoapOutgoing&
+     data.addarg("PeerConnectionManager", "");
+     data.addarg("PeerConnectionID", "-1");
+     data.addarg("Direction", "Input");
+-    data.addarg("Status", "Unknown");
++    data.addarg("Status", "OK");
+ 
+     return UPNP_E_SUCCESS;
+ }
 diff --git a/src/main.cxx b/src/main.cxx
 index 82ecd8d..6e28619 100644
 --- a/src/main.cxx
@@ -555,7 +977,7 @@ index 82ecd8d..6e28619 100644
      return 0;
  }
 diff --git a/src/mpdcli.cxx b/src/mpdcli.cxx
-index 2f0e79a..2634251 100644
+index 2f0e79a..81eec51 100644
 --- a/src/mpdcli.cxx
 +++ b/src/mpdcli.cxx
 @@ -16,6 +16,7 @@
@@ -666,8 +1088,106 @@ index 2f0e79a..2634251 100644
      m_idleconn = nullptr;
      return false;
  }
+@@ -417,7 +412,8 @@ bool MPDCli::updStatus()
+     } else {
+         m_stat.volume = mpd_status_get_volume(mpds);
+     }
+-    if (m_stat.volume >= 0) {
++    m_stat.hasMixer = m_stat.volume >= 0;
++    if (m_stat.hasMixer) {
+         m_cachedvolume = m_stat.volume;
+     } else {
+         m_stat.volume = m_cachedvolume;
+@@ -474,12 +470,15 @@ bool MPDCli::updStatus()
+     m_stat.songid = mpd_status_get_song_id(mpds);
+     if (m_stat.songpos >= 0) {
+         string prevuri = m_stat.currentsong.rsrc.uri;
+-        statSong_i(m_stat.currentsong);
++        if (!statSong_i(m_stat.currentsong))
++            m_stat.currentsong.clear();
+         if (m_stat.currentsong.rsrc.uri.compare(prevuri)) {
+             m_stat.trackcounter++;
+             m_stat.detailscounter = 0;
+         }
+-        statSong_i(m_stat.nextsong, m_stat.songpos + 1);
++        if (m_stat.songpos + 1 >= m_stat.qlen ||
++            !statSong_i(m_stat.nextsong, m_stat.songpos + 1))
++            m_stat.nextsong.clear();
+     } else {
+         m_stat.currentsong.clear();
+         m_stat.nextsong.clear();
+@@ -508,8 +507,7 @@ bool MPDCli::updStatus()
+     }
+ 
+     const char *err = mpd_status_get_error(mpds);
+-    if (err != 0)
+-        m_stat.errormessage.assign(err);
++    m_stat.errormessage = err ? err : "";
+ 
+     mpd_status_free(mpds);
+     return true;
+@@ -542,11 +540,11 @@ bool MPDCli::checkForCommand(const string& cmdname)
+     return found;
+ }
+ 
+-MpdStatus MPDCli::getStatus()
++MpdStatus MPDCli::getStatus(bool refresh)
+ {
+     std::unique_lock<std::mutex> lock(m_mutex);
+-    // We used to updstatus() here, but the status should now be
+-    // always up to date because of the idle loop.
++    if (refresh)
++        updStatus();
+     // We have to return a copy, as we are going to release the lock.
+     return m_stat;
+ }
+@@ -657,7 +655,7 @@ UpSong&  MPDCli::mapSong(UpSong& upsong, struct mpd_song *song)
+     // Bubble UPnP into accepting to play them (it does not
+     // actually need an URI as it's going to use seekid, but
+     // it believes it does).
+-    if (!looksLikeTransportURI(upsong.rsrc.uri)) {
++    if (!upsong.rsrc.uri.empty() && !looksLikeTransportURI(upsong.rsrc.uri)) {
+         //LOGDEB("MPDCli::mapSong: id " << upsong.mpdid << 
+         // " replacing [" << upsong.rsrc.uri << "]" << endl);
+         upsong.rsrc.uri = "http://127.0.0.1/" + upsong.rsrc.uri;
+@@ -800,7 +798,7 @@ bool MPDCli::pause_i(bool onoff)
+ {
+     LOGDEB("MPDCli::pause" << endl);
+     RETRY_CMD(mpd_run_pause(m_conn, onoff), false);
+-    return true;
++    return updStatus();
+ }
+ 
+ bool MPDCli::play(int pos)
+@@ -842,7 +840,7 @@ bool MPDCli::stop()
+     LOGDEB("MPDCli::stop" << endl);
+     std::unique_lock<std::mutex> lock(m_mutex);
+     RETRY_CMD(mpd_run_stop(m_conn), false);
+-    return true;
++    return updStatus();
+ }
+ 
+ bool MPDCli::seek(int seconds)
+@@ -1042,7 +1040,7 @@ bool MPDCli::clearQueue_i()
+ {
+     LOGDEB("MPDCli::clearQueue " << endl);
+     RETRY_CMD(mpd_run_clear(m_conn), false);
+-    return true;
++    return updStatus();
+ }
+ 
+ bool MPDCli::deleteId(int id)
+@@ -1063,7 +1061,7 @@ bool MPDCli::deletePosRange(unsigned int start, unsigned int end)
+     LOGDEB("MPDCli::deletePosRange [" << start << ", " << end << "[" << endl);
+     std::unique_lock<std::mutex> lock(m_mutex);
+     RETRY_CMD(mpd_run_delete_range(m_conn, start, end), false);
+-    return true;
++    return updStatus();
+ }
+ 
+ 
 diff --git a/src/mpdcli.hxx b/src/mpdcli.hxx
-index 71b67cd..20ae85f 100644
+index 71b67cd..e565991 100644
 --- a/src/mpdcli.hxx
 +++ b/src/mpdcli.hxx
 @@ -17,6 +17,7 @@
@@ -678,7 +1198,26 @@ index 71b67cd..20ae85f 100644
  #include <regex.h>
  #include <string>
  #include <cstdio>
-@@ -144,7 +145,7 @@ private:
+@@ -43,7 +44,8 @@ public:
+     unsigned int versmajor;
+     unsigned int versminor;
+     unsigned int verspatch;
+-    int volume;
++    int volume{100};
++    bool hasMixer{false};
+     bool rept;
+     bool random;
+     bool single;
+@@ -110,7 +112,7 @@ public:
+     bool getQueueData(std::vector<UpSong>& vdata);
+     bool statSong(UpSong& usong, int pos = -1, bool isId = false);
+     UpSong& mapSong(UpSong& usong, struct mpd_song *song);
+-    MpdStatus getStatus();
++    MpdStatus getStatus(bool refresh = false);
+     // Copy complete mpd state. If seekms is > 0, this is the value to
+     // save (sometimes useful if mpd was stopped)
+     bool saveState(MpdState& st, int seekms = 0);
+@@ -144,7 +146,7 @@ private:
      // Protect idleconn: We need to use it from the main thread to
      // tell the idle thread to stop.
      std::mutex m_idlemutex;
@@ -687,7 +1226,7 @@ index 71b67cd..20ae85f 100644
      // thread to listen to MPD events.
      std::thread m_idlethread;
      // MPD does not report idle events for play time change. We poll
-@@ -165,7 +166,7 @@ private:
+@@ -165,7 +167,7 @@ private:
      int m_premutevolume{0};
      // Volume that we use when MPD is stopped (does not return a
      // volume in the status)
@@ -768,7 +1307,7 @@ index 446ad99..f53a5d4 100644
 -http-get:*:video/mp4:*
 +http-get:*:audio/mpeg:*
 diff --git a/src/renderctl.cxx b/src/renderctl.cxx
-index 9b1108b..114a72c 100644
+index 9b1108b..39733a7 100644
 --- a/src/renderctl.cxx
 +++ b/src/renderctl.cxx
 @@ -19,6 +19,7 @@
@@ -779,8 +1318,15 @@ index 9b1108b..114a72c 100644
  #include <stdlib.h>
  
  #include <functional>
-@@ -42,6 +43,8 @@ using namespace UPnPP;
+@@ -40,8 +41,15 @@ using namespace std;
+ using namespace std::placeholders;
+ using namespace UPnPP;
  
++static bool canChangeVolume(UpMpd& device)
++{
++    return device.getmpdcli()->getStatus(true).hasMixer;
++}
++
  static const string 
  sTpRender("urn:schemas-upnp-org:service:RenderingControl:1");
 +static constexpr int minVolumeDb = -10240;
@@ -788,7 +1334,7 @@ index 9b1108b..114a72c 100644
  static const string sIdRender("urn:upnp-org:serviceId:RenderingControl");
  
  RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool noev)
-@@ -56,6 +59,12 @@ RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool no
+@@ -56,6 +64,12 @@ RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool no
                                                this, _1, _2, false));
      m_udev->addActionMapping(this, "GetVolume", bind(&RenderingControl::getVolume, 
                                                this, _1, _2, false));
@@ -801,16 +1347,16 @@ index 9b1108b..114a72c 100644
      m_udev->addActionMapping(this, "ListPresets", 
                              bind(&RenderingControl::listPresets, this, _1, _2));
      m_udev->addActionMapping(this, "SelectPreset", 
-@@ -74,6 +83,8 @@ enum RDCErrorCode {
+@@ -74,6 +88,8 @@ enum RDCErrorCode {
  const std::string RenderingControl::serviceErrString(int error) const
  {
      switch(error) {
-+    case 601:
-+        return "Volume unavailable";
++    case 402: return "Invalid Args";
++    case 600: return "Volume or mute action unavailable";
      case UPNP_AV_RC_INVALID_PRESET_NAME:
          return "Rendering Control Invalid Preset Name";
      case UPNP_AV_RC_INVALID_INSTANCE_ID:
-@@ -93,7 +104,7 @@ const std::string RenderingControl::serviceErrString(int error) const
+@@ -93,7 +109,7 @@ const std::string RenderingControl::serviceErrString(int error) const
  //  VolumeDB
  // LastChange contains all the variables that were changed since the last
  // event. For us that's at most Mute, Volume, VolumeDB
@@ -819,7 +1365,7 @@ index 9b1108b..114a72c 100644
  //   <InstanceID val=”0”>
  //     <Mute channel=”Master” val=”0”/>
  //     <Volume channel=”Master” val=”24”/>
-@@ -107,7 +118,7 @@ bool RenderingControl::rdstateMToU(unordered_map<string, string>& status)
+@@ -107,7 +123,7 @@ bool RenderingControl::rdstateMToU(unordered_map<string, string>& status)
      if (volume < 0)
          volume = 0;
      status["Volume"] = SoapHelp::i2s(volume);
@@ -828,7 +1374,7 @@ index 9b1108b..114a72c 100644
      status["Mute"] =  volume == 0 ? "1" : "0";
      return true;
  }
-@@ -122,13 +133,14 @@ bool RenderingControl::getEventData(bool all, std::vector<std::string>& names,
+@@ -122,13 +138,14 @@ bool RenderingControl::getEventData(bool all, std::vector<std::string>& names,
  bool RenderingControl::getEventDataNoFlush(
      bool all, std::vector<std::string>& names, std::vector<std::string>& values)
  {
@@ -844,7 +1390,7 @@ index 9b1108b..114a72c 100644
                  "<InstanceID val=\"0\">\n");
  
      bool changefound = false;
-@@ -143,7 +155,7 @@ bool RenderingControl::getEventDataNoFlush(
+@@ -143,7 +160,7 @@ bool RenderingControl::getEventDataNoFlush(
  
          chgdata += "<";
          chgdata += it->first;
@@ -853,7 +1399,7 @@ index 9b1108b..114a72c 100644
              chgdata += " channel=\"Master\"";
          }
          chgdata += " val=\"";
-@@ -189,7 +201,6 @@ void RenderingControl::onMpdEvent(const MpdStatus*)
+@@ -189,47 +206,43 @@ void RenderingControl::onMpdEvent(const MpdStatus*)
  //   specified in the service description (SCPD) available from the
  //   device.
  
@@ -861,9 +1407,10 @@ index 9b1108b..114a72c 100644
  int RenderingControl::getVolumeDBRange(const SoapIncoming& sc, SoapOutgoing& data)
  {
      string channel;
-@@ -197,13 +208,11 @@ int RenderingControl::getVolumeDBRange(const SoapIncoming& sc, SoapOutgoing& dat
+     
      if (!sc.get("Channel", &channel) || channel.compare("Master")) {
-         return UPNP_E_INVALID_PARAM;
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
      }
 -    data.addarg("MinValue", "-10240");
 +    data.addarg("MinValue", SoapHelp::i2s(minVolumeDb));
@@ -876,55 +1423,113 @@ index 9b1108b..114a72c 100644
  
  int RenderingControl::setMute(const SoapIncoming& sc, SoapOutgoing& data)
  {
-@@ -215,14 +224,13 @@ int RenderingControl::setMute(const SoapIncoming& sc, SoapOutgoing& data)
-     if (!sc.get("DesiredMute", &desired)) {
-         return UPNP_E_INVALID_PARAM;
+     string channel;
+     if (!sc.get("Channel", &channel) || channel.compare("Master")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
      }
+     string desired;
+     if (!sc.get("DesiredMute", &desired)) {
+-        return UPNP_E_INVALID_PARAM;
+-    }
 -    if (desired[0] == 'F' || desired[0] == '0') {
 -        m_dev->setmute(false);
 -    } else if (desired[0] == 'T' || desired[0] == '1') {
 -        m_dev->setmute(true);
-+    if (desired == "0" || desired == "false" || desired == "False") {
-+        return m_dev->getvolume() > 0 || m_dev->setmute(false) ? UPNP_E_SUCCESS : 601;
-+    } else if (desired == "1" || desired == "true" || desired == "True") {
-+        return m_dev->getvolume() == 0 || m_dev->setmute(true) ? UPNP_E_SUCCESS : 601;
-     } else {
-         return UPNP_E_INVALID_PARAM;
+-    } else {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
      }
 -    return UPNP_E_SUCCESS;
++    const bool mute = desired == "1" || desired == "true" || desired == "True" ||
++                      desired == "yes";
++    if (!mute && desired != "0" && desired != "false" && desired != "False" && desired != "no")
++        return 402;
++    if (!canChangeVolume(*m_dev) || (m_dev->getvolume() == 0) == mute)
++        return UPNP_E_SUCCESS;
++    return m_dev->setmute(mute) ? UPNP_E_SUCCESS : 600;
  }
  
  int RenderingControl::getMute(const SoapIncoming& sc, SoapOutgoing& data)
-@@ -250,16 +258,22 @@ int RenderingControl::setVolume(const SoapIncoming& sc, SoapOutgoing& data,
+ {
+     string channel;
+     if (!sc.get("Channel", &channel) || channel.compare("Master")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     int volume = m_dev->getvolume();
+@@ -242,24 +255,30 @@ int RenderingControl::setVolume(const SoapIncoming& sc, SoapOutgoing& data,
+ {
+     string channel;
+     if (!sc.get("Channel", &channel) || channel.compare("Master")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     string desired;
+     
      if (!sc.get("DesiredVolume", &desired)) {
-         return UPNP_E_INVALID_PARAM;
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
      }
 -    int volume = atoi(desired.c_str());
 +    int volume;
 +    const char *end = desired.data() + desired.size();
 +    const auto parsed = std::from_chars(desired.data(), end, volume);
 +    if (parsed.ec != std::errc{} || parsed.ptr != end)
-+        return UPNP_E_INVALID_PARAM;
++        return 402;
      if (isDb) {
 -        volume = dbvaluetopercent(volume);
 -    } 
 -    if (volume < 0 || volume > 100) {
+-        return UPNP_E_INVALID_PARAM;
 +        if (volume < minVolumeDb || volume > 0)
-+            return UPNP_E_INVALID_PARAM;
++            return 402;
 +        volume = volume == minVolumeDb ? 0 : dbvaluetopercent(volume);
 +    } else if (volume < 0 || volume > 100) {
-         return UPNP_E_INVALID_PARAM;
++        return 402;
      }
 -    
 -    m_dev->setvolume(volume);
 -    return UPNP_E_SUCCESS;
 +
-+    if (m_dev->getvolume() == volume)
++    if (!canChangeVolume(*m_dev) || m_dev->getvolume() == volume)
 +        return UPNP_E_SUCCESS;
-+    return m_dev->setvolume(volume) ? UPNP_E_SUCCESS : 601;
++    return m_dev->setvolume(volume) ? UPNP_E_SUCCESS : 600;
  }
  
  int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
+@@ -268,7 +287,7 @@ int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
+     // LOGDEB("RenderingControl::getVolume" << endl);
+     string channel;
+     if (!sc.get("Channel", &channel) || channel.compare("Master")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+     
+     int volume = m_dev->getvolume();
+@@ -291,15 +310,14 @@ int RenderingControl::selectPreset(const SoapIncoming& sc, SoapOutgoing& data)
+     string presetnm;
+     
+     if (!sc.get("PresetName", &presetnm)) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+     if (presetnm.compare("FactoryDefaults")) {
+-        return UPNP_E_INVALID_PARAM;
++        return 402;
+     }
+ 
+     // Well there is only the volume actually...
+-    int volume = 50;
+-    m_dev->setvolume(volume);
+-
+-    return UPNP_E_SUCCESS;
++    if (!canChangeVolume(*m_dev))
++        return UPNP_E_SUCCESS;
++    return m_dev->setvolume(50) ? UPNP_E_SUCCESS : 600;
+ }
 diff --git a/src/renderctl.hxx b/src/renderctl.hxx
 index 21b521c..1b214f0 100644
 --- a/src/renderctl.hxx

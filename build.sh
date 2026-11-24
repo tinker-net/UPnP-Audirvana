@@ -30,6 +30,7 @@ fetch() {
 fetch libnpupnp-6.3.1 1e6271dd2e641a5b095d994be6976031e5f6b32a22df3bb1988636f51b0f52b7
 fetch libupnpp-1.0.4 4738a19be51c09bd59a26b28e305172e2052c0e970b2fad92320a2d7cf1157c5
 fetch upmpdcli-1.9.17 5eb9ba2f4d2790e302fc1788509789804bb866161e4d9ae05e13bc6f75fc4e1f
+(cd "$work/libnpupnp-6.3.1" && git apply "$project/patches/libnpupnp.patch")
 
 if [ ! -d "$build/cache/mpd.git" ]; then
     git clone --bare --depth 1 --branch v0.24.5 \
@@ -79,7 +80,7 @@ cp "$work/libnpupnp-6.3.1/COPYING" "$stage/share/licenses/libnpupnp"
 mkdir -p "$work/stage/etc/upnp-audirvana" "$work/stage/etc/systemd/system"
 cp "$project"/packaging/*.conf "$work/stage/etc/upnp-audirvana/"
 cp "$project/packaging/upnp-audirvana.service" "$work/stage/etc/systemd/system/"
-archive="UPnP-Audirvana-v0.1.0-preview.1-$(dpkg --print-architecture).tar.gz"
+archive="UPnP-Audirvana-v0.1.0-preview.2-$(dpkg --print-architecture).tar.gz"
 tar -czf "$work/$archive" -C "$work/stage" opt etc
 mv "$work/$archive" "$project/$archive"
 printf '\n%s\n' "$project/$archive"
@@ -88,11 +89,11 @@ if [ "${SOURCE_BUNDLE:-0}" = 1 ]; then
     source_dir="$work/UPnP-Audirvana-source"
     mkdir -p "$source_dir/upstream"
     cp "$project"/build.sh "$project"/README.md "$project"/COPYING "$source_dir/"
-    cp -R "$project"/patches "$project"/packaging "$source_dir/"
+    cp -R "$project"/patches "$project"/packaging "$project"/tests "$source_dir/"
     git -C "$work/mpd" archive --format=tar.gz --prefix=mpd-0.24.5/ \
         "$mpd_revision" > "$source_dir/upstream/mpd-0.24.5.tar.gz"
     cp "$build/cache/"*.tar.gz "$source_dir/upstream/"
-    tar -czf "$work/UPnP-Audirvana-v0.1.0-preview.1-source.tar.gz" \
+    tar -czf "$work/UPnP-Audirvana-v0.1.0-preview.2-source.tar.gz" \
         -C "$work" UPnP-Audirvana-source
-    mv "$work/UPnP-Audirvana-v0.1.0-preview.1-source.tar.gz" "$project/"
+    mv "$work/UPnP-Audirvana-v0.1.0-preview.2-source.tar.gz" "$project/"
 fi

@@ -31,7 +31,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            build-essential ca-certificates curl git meson ninja-build pkg-config gh \
+            build-essential ca-certificates curl git meson ninja-build pkg-config gh python3 \
             libasound2-dev libcurl4-openssl-dev libexpat1-dev \
             libflac-dev libfmt-dev libid3tag0-dev libjsoncpp-dev libmicrohttpd-dev \
             libmpdclient-dev libmpg123-dev libsndfile1-dev
@@ -47,6 +47,11 @@ jobs:
           prefix=/tmp/renderer-check/opt/upnp-audirvana
           LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/upnp-audirvana" --version
           sha256sum "${archive#./}" > "${archive#./}.sha256"
+      - name: Exercise UPnP over the network
+        run: |
+          prefix=/tmp/renderer-check/opt/upnp-audirvana
+          runuser -u nobody -- env LD_LIBRARY_PATH="$prefix/lib" \
+            python3 tests/upnp_wire.py "$prefix"
       - uses: actions/upload-artifact@v4
         with:
           name: UPnP-Audirvana-DietPi-arm64

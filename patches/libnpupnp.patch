@@ -1,0 +1,12 @@
+diff --git a/src/soap/soap_device.cpp b/src/soap/soap_device.cpp
+index a4655f9..3d6cb51 100644
+--- a/src/soap/soap_device.cpp
++++ b/src/soap/soap_device.cpp
+@@ -146,6 +146,7 @@ static void send_action_response(
+         txt.size(), const_cast<char*>(txt.c_str()), MHD_RESPMEM_MUST_COPY);
+     MHD_add_response_header(
+         mhdt->response, "SERVER", get_sdk_device_info(soap_info->productversion).c_str());
++    MHD_add_response_header(mhdt->response, "Content-Type", R"(text/xml; charset="utf-8")");
+     mhdt->httpstatus = 200;
+ }
+ 

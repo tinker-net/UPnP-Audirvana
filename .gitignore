@@ -1,2 +1,3 @@
 .build/
 UPnP-Audirvana-v*.tar.gz
+__pycache__/
