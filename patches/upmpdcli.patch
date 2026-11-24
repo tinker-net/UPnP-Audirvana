@@ -206,7 +206,7 @@ index ecdc160..0dda1a9 100644
        <name>A_ARG_TYPE_Channel</name>
        <dataType>string</dataType>
 diff --git a/src/avtransport.cxx b/src/avtransport.cxx
-index 6d90a98..04fddd5 100644
+index 6d90a98..eff42de 100644
 --- a/src/avtransport.cxx
 +++ b/src/avtransport.cxx
 @@ -19,7 +19,9 @@
@@ -227,7 +227,63 @@ index 6d90a98..04fddd5 100644
  
  // For testing upplay with a dumb renderer.
  // #define NO_SETNEXT
-@@ -119,6 +120,7 @@ enum AVTErrorCode {
+@@ -53,30 +54,40 @@ AVTransport::AVTransport(
+     : UpnpService(sTpTransport, sIdTransport, "AVTransport.xml", udev, noev),
+       m_dev(dev), m_udev(udev), m_ohp(0)
+ {
+-    udev->addActionMapping(this,"SetAVTransportURI",
++    const auto mapAction = [this, udev](const char *name, auto handler) {
++        udev->addActionMapping(this, name, [handler](const SoapIncoming& incoming, SoapOutgoing& outgoing) {
++            string instance;
++            if (!incoming.get("InstanceID", &instance))
++                return 402;
++            if (instance != "0")
++                return 718;
++            return handler(incoming, outgoing);
++        });
++    };
++    mapAction("SetAVTransportURI",
+                            bind(&AVTransport::setAVTransportURI, this,_1,_2, false));
+-    udev->addActionMapping(this,"SetNextAVTransportURI", 
++    mapAction("SetNextAVTransportURI", 
+                             bind(&AVTransport::setAVTransportURI, this,_1, _2, true));
+-    udev->addActionMapping(this,"GetPositionInfo", 
++    mapAction("GetPositionInfo", 
+                             bind(&AVTransport::getPositionInfo, this, _1, _2));
+-    udev->addActionMapping(this,"GetTransportInfo", 
++    mapAction("GetTransportInfo", 
+                             bind(&AVTransport::getTransportInfo, this, _1, _2));
+-    udev->addActionMapping(this,"GetMediaInfo", bind(&AVTransport::getMediaInfo, this, _1, _2));
+-    udev->addActionMapping(this,"GetDeviceCapabilities", 
++    mapAction("GetMediaInfo", bind(&AVTransport::getMediaInfo, this, _1, _2));
++    mapAction("GetDeviceCapabilities", 
+                             bind(&AVTransport::getDeviceCapabilities, this, _1, _2));
+-    udev->addActionMapping(this,"SetPlayMode", bind(&AVTransport::setPlayMode, this, _1, _2));
+-    udev->addActionMapping(this,"GetTransportSettings", 
++    mapAction("SetPlayMode", bind(&AVTransport::setPlayMode, this, _1, _2));
++    mapAction("GetTransportSettings", 
+                             bind(&AVTransport::getTransportSettings, this, _1, _2));
+-    udev->addActionMapping(this,"GetCurrentTransportActions", 
++    mapAction("GetCurrentTransportActions", 
+                             bind(&AVTransport::getCurrentTransportActions, this,_1,_2));
+-    udev->addActionMapping(this,"Stop", bind(&AVTransport::playcontrol, this, _1, _2, 0));
+-    udev->addActionMapping(this,"Play", bind(&AVTransport::playcontrol, this, _1, _2, 1));
+-    udev->addActionMapping(this,"Pause", bind(&AVTransport::playcontrol, this, _1, _2, 2));
+-    udev->addActionMapping(this,"Seek", bind(&AVTransport::seek, this, _1, _2));
++    mapAction("Stop", bind(&AVTransport::playcontrol, this, _1, _2, 0));
++    mapAction("Play", bind(&AVTransport::playcontrol, this, _1, _2, 1));
++    mapAction("Pause", bind(&AVTransport::playcontrol, this, _1, _2, 2));
++    mapAction("Seek", bind(&AVTransport::seek, this, _1, _2));
+ 
+     // should we get rid of those ? They don't make sense for us
+-    udev->addActionMapping(this, "Next", bind(&AVTransport::seqcontrol, this, _1, _2, 0));
+-    udev->addActionMapping(this, "Previous", bind(&AVTransport::seqcontrol, this, _1, _2, 1));
++    mapAction("Next", bind(&AVTransport::seqcontrol, this, _1, _2, 0));
++    mapAction("Previous", bind(&AVTransport::seqcontrol, this, _1, _2, 1));
+ 
+     // This would make our life easier, but it's incompatible if
+     // ohplaylist is also in use, so refrain.
+@@ -119,6 +130,7 @@ enum AVTErrorCode {
  const std::string AVTransport::serviceErrString(int error) const
  {
      switch(error) {
@@ -235,7 +291,7 @@ index 6d90a98..04fddd5 100644
      case UPNP_AV_AVT_INVALID_TRANSITION: return "AVTransport Invalid Transition";
      case UPNP_AV_AVT_NO_CONTENTS: return "AVTransport No Contents";
      case UPNP_AV_AVT_READ_ERROR: return "AVTransport Read Error";
-@@ -167,12 +169,16 @@ static string mpdsToPlaymode(const MpdStatus& mpds)
+@@ -167,12 +179,16 @@ static string mpdsToPlaymode(const MpdStatus& mpds)
  
  static string mpdsToTActions(const MpdStatus &mpds)
  {
@@ -254,7 +310,7 @@ index 6d90a98..04fddd5 100644
      return tactions;
  }
  
-@@ -230,7 +236,7 @@ static string mpdsToTState(const MpdStatus &mpds)
+@@ -230,7 +246,7 @@ static string mpdsToTState(const MpdStatus &mpds)
  // Prepare UPnP AVTransport state variables from our and MPD state.
  bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
  {
@@ -263,7 +319,7 @@ index 6d90a98..04fddd5 100644
      LOGDEB2("AVT::tpstateMToU: curpos: " << mpds.songpos << " qlen " << mpds.qlen << "\n");
      bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
      
-@@ -239,44 +245,14 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+@@ -239,44 +255,14 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
      status["TransportStatus"] = m_dev->getmpdcli()->ok() ? "OK" : "ERROR_OCCURRED";
      status["TransportPlaySpeed"] = "1";
  
@@ -312,7 +368,7 @@ index 6d90a98..04fddd5 100644
      status["CurrentMediaDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
      status["CurrentTrackDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
      status["CurrentTrackURI"] = m_uri;
-@@ -313,9 +289,52 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+@@ -313,9 +299,52 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
      return true;
  }
  
@@ -365,7 +421,7 @@ index 6d90a98..04fddd5 100644
      unordered_map<string, string> newtpstate;
      tpstateMToU(newtpstate);
      if (all)
-@@ -323,19 +342,17 @@ bool AVTransport::getEventData(bool all, std::vector<std::string>& names,
+@@ -323,19 +352,17 @@ bool AVTransport::getEventData(bool all, std::vector<std::string>& names,
  
      bool changefound = false;
  
@@ -391,7 +447,7 @@ index 6d90a98..04fddd5 100644
  
          chgdata += "<";
          chgdata += nm;
-@@ -371,32 +388,54 @@ void AVTransport::onMpdEvent(const MpdStatus*)
+@@ -371,32 +398,54 @@ void AVTransport::onMpdEvent(const MpdStatus*)
  // http://192.168.4.4:8200/MediaItems/246.mp3
  int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, bool setnext)
  {
@@ -453,7 +509,7 @@ index 6d90a98..04fddd5 100644
      const MpdStatus::State st = mpds.state;
  
      // Check that we support the audio format for the input uri.
-@@ -404,7 +443,7 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -404,7 +453,7 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
      if (!m_dev->checkContentFormat(uri, metadata, &metaformpd)) {
          LOGERR("set(Next)AVTransportURI: unsupported format: uri " << uri <<
                 " metadata [" << metadata << "]\n");
@@ -462,7 +518,7 @@ index 6d90a98..04fddd5 100644
      }
  
      bool is_song = (st == MpdStatus::MPDS_PLAY) || (st == MpdStatus::MPDS_PAUSE);
-@@ -413,13 +452,14 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -413,13 +462,14 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
      LOGDEB1("AVTransport::set" << (setnext?"Next":"") << "AVTransportURI: curpos: " <<
              curpos << " is_song " << is_song << " qlen " << mpds.qlen << "\n");
  
@@ -479,7 +535,7 @@ index 6d90a98..04fddd5 100644
          curpos = -1;
      }
  
-@@ -443,35 +483,26 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -443,35 +493,26 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
      }
  
      if (setnext) {
@@ -523,7 +579,7 @@ index 6d90a98..04fddd5 100644
          m_nextUri.clear();
          m_nextMetadata.clear();
      }
-@@ -489,16 +520,9 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -489,16 +530,9 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
          //  - BubbleUpnp: issues a Play
          //  - MediaHouse: no setnext, Play
          //  - Raumfeld: needs autoplay
@@ -543,7 +599,7 @@ index 6d90a98..04fddd5 100644
          // Clean up old song ids
          if (!(m_dev->getopts().options & UpMpd::upmpdOwnQueue)) {
              for (auto id : m_songids) {
-@@ -522,14 +546,16 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -522,14 +556,16 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
  
  int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
  {
@@ -563,7 +619,7 @@ index 6d90a98..04fddd5 100644
      data.addarg("RelTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
      data.addarg("AbsTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
      data.addarg("RelCount", "0");
-@@ -539,7 +565,7 @@ int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -539,7 +575,7 @@ int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
  
  int AVTransport::getTransportInfo(const SoapIncoming& sc,SoapOutgoing& data)
  {
@@ -572,7 +628,7 @@ index 6d90a98..04fddd5 100644
      LOGDEB1("AVTransport::getTransportInfo. State: " << mpdsToTState(mpds) << "\n");
  
      data.addarg("CurrentTransportState", mpdsToTState(mpds));
-@@ -558,27 +584,29 @@ int AVTransport::getDeviceCapabilities(const SoapIncoming& sc, SoapOutgoing& dat
+@@ -558,27 +594,29 @@ int AVTransport::getDeviceCapabilities(const SoapIncoming& sc, SoapOutgoing& dat
  
  int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
  {
@@ -608,7 +664,7 @@ index 6d90a98..04fddd5 100644
      data.addarg("PlayMedium", playmedium);
      data.addarg("RecordMedium", "NOT_IMPLEMENTED");
      data.addarg("WriteStatus", "NOT_IMPLEMENTED");
-@@ -588,12 +616,13 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -588,12 +626,13 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
  int AVTransport::playcontrol(
      const SoapIncoming& sc, SoapOutgoing& data, int what)
  {
@@ -624,7 +680,7 @@ index 6d90a98..04fddd5 100644
      }
  
      bool ok = true;
-@@ -602,27 +631,29 @@ int AVTransport::playcontrol(
+@@ -602,27 +641,29 @@ int AVTransport::playcontrol(
          switch (what) {
          case 0:
              m_uri = m_curMetadata = m_nextUri = m_nextMetadata = "";
@@ -657,7 +713,7 @@ index 6d90a98..04fddd5 100644
          case 2: break;
          }
          break;
-@@ -630,30 +661,33 @@ int AVTransport::playcontrol(
+@@ -630,30 +671,33 @@ int AVTransport::playcontrol(
      default:
          switch (what) {
          case 0: break;
@@ -698,7 +754,7 @@ index 6d90a98..04fddd5 100644
  }
  
  /*
-@@ -668,7 +702,7 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -668,16 +712,13 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
  {
      string playmode;
      if (!sc.get("NewPlayMode", &playmode)) {
@@ -707,7 +763,18 @@ index 6d90a98..04fddd5 100644
      }
      LOGDEB("AVTransport::setPlayMode: " << playmode << "\n");
  
-@@ -706,14 +740,14 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
+     if ((m_dev->getopts().options & UpMpd::upmpdOwnQueue)) {
+-        // If we own the queue then none of this makes sense, we're
+-        // only keeping 1 or 2 entries on the queue and controlling
+-        // everything.
+-        LOGDEB("AVTRansport::setPlayMode: ownqueue is set, doing nothing\n");
+-        return 0;
++        // The control point owns album order and repeat in UPnP AV mode.
++        return playmode == "NORMAL" ? UPNP_E_SUCCESS : UPNP_AV_AVT_UNSUPPORTED_PLAY_MODE;
+     }
+ 
+     bool ok;
+@@ -706,14 +747,14 @@ int AVTransport::setPlayMode(const SoapIncoming& sc, SoapOutgoing& data)
              m_dev->getmpdcli()->random(false) &&
              m_dev->getmpdcli()->single(true);
      } else {
@@ -725,7 +792,7 @@ index 6d90a98..04fddd5 100644
      string playmode = mpdsToPlaymode(mpds);
      data.addarg("PlayMode", playmode);
      data.addarg("RecQualityMode", "NOT_IMPLEMENTED");
-@@ -722,7 +756,7 @@ int AVTransport::getTransportSettings(const SoapIncoming& sc, SoapOutgoing& data
+@@ -722,7 +763,7 @@ int AVTransport::getTransportSettings(const SoapIncoming& sc, SoapOutgoing& data
  
  int AVTransport::getCurrentTransportActions(const SoapIncoming& sc, SoapOutgoing& data)
  {
@@ -734,7 +801,7 @@ index 6d90a98..04fddd5 100644
      data.addarg("Actions", mpdsToTActions(mpds));
      return UPNP_E_SUCCESS;
  }
-@@ -731,12 +765,12 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -731,12 +772,12 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
  {
      string unit;
      if (!sc.get("Unit", &unit)) {
@@ -749,7 +816,7 @@ index 6d90a98..04fddd5 100644
      }
  
      //LOGDEB("AVTransport::seek: unit " << unit << " target " << target << 
-@@ -749,12 +783,26 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -749,12 +790,25 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
      // ABS_TIME to the whole media (ie for a multitrack tape). So
      // take both ABS and REL as absolute position in the current song
      if (!unit.compare("REL_TIME") || !unit.compare("ABS_TIME")) {
@@ -773,8 +840,9 @@ index 6d90a98..04fddd5 100644
 -        return UPNP_E_INVALID_PARAM;
 +        return 402;
      }
-     LOGDEB("AVTransport::seek: seeking to " << abs_seconds << 
-            " seconds (" << upnpduration(abs_seconds * 1000) << ")" << "\n");
+-    LOGDEB("AVTransport::seek: seeking to " << abs_seconds << 
+-           " seconds (" << upnpduration(abs_seconds * 1000) << ")" << "\n");
++    LOGDEB("AVTransport::seek: seeking to " << abs_seconds << " seconds\n");
  
 -    return m_dev->getmpdcli()->seek(abs_seconds) ? UPNP_E_SUCCESS : UPNP_E_INTERNAL_ERROR;
 +    return m_dev->getmpdcli()->seek(abs_seconds) ? UPNP_E_SUCCESS : UPNP_AV_AVT_ILLEGAL_SEEK_TARGET;
@@ -1307,7 +1375,7 @@ index 446ad99..f53a5d4 100644
 -http-get:*:video/mp4:*
 +http-get:*:audio/mpeg:*
 diff --git a/src/renderctl.cxx b/src/renderctl.cxx
-index 9b1108b..39733a7 100644
+index 9b1108b..f7ec954 100644
 --- a/src/renderctl.cxx
 +++ b/src/renderctl.cxx
 @@ -19,6 +19,7 @@
@@ -1318,7 +1386,7 @@ index 9b1108b..39733a7 100644
  #include <stdlib.h>
  
  #include <functional>
-@@ -40,8 +41,15 @@ using namespace std;
+@@ -40,25 +41,48 @@ using namespace std;
  using namespace std::placeholders;
  using namespace UPnPP;
  
@@ -1334,20 +1402,46 @@ index 9b1108b..39733a7 100644
  static const string sIdRender("urn:upnp-org:serviceId:RenderingControl");
  
  RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool noev)
-@@ -56,6 +64,12 @@ RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool no
+     : UpnpService(sTpRender, sIdRender, "RenderingControl.xml", udev, noev),
+       m_dev(dev), m_udev(udev)
+ {
+-    m_udev->addActionMapping(this, "SetMute", 
++    const auto mapAction = [this, udev](const char *name, auto handler) {
++        udev->addActionMapping(this, name, [handler](const SoapIncoming& incoming, SoapOutgoing& outgoing) {
++            string instance;
++            if (!incoming.get("InstanceID", &instance))
++                return 402;
++            if (instance != "0")
++                return 702;
++            return handler(incoming, outgoing);
++        });
++    };
++    mapAction("SetMute", 
+                             bind(&RenderingControl::setMute, this, _1, _2));
+-    m_udev->addActionMapping(this, "GetMute", 
++    mapAction("GetMute", 
+                             bind(&RenderingControl::getMute, this, _1, _2));
+-    m_udev->addActionMapping(this, "SetVolume", bind(&RenderingControl::setVolume, 
++    mapAction("SetVolume", bind(&RenderingControl::setVolume, 
                                                this, _1, _2, false));
-     m_udev->addActionMapping(this, "GetVolume", bind(&RenderingControl::getVolume, 
+-    m_udev->addActionMapping(this, "GetVolume", bind(&RenderingControl::getVolume, 
++    mapAction("GetVolume", bind(&RenderingControl::getVolume, 
                                                this, _1, _2, false));
-+    m_udev->addActionMapping(this, "GetVolumeDB", bind(&RenderingControl::getVolume,
+-    m_udev->addActionMapping(this, "ListPresets", 
++    mapAction("GetVolumeDB", bind(&RenderingControl::getVolume,
 +                                              this, _1, _2, true));
-+    m_udev->addActionMapping(this, "SetVolumeDB", bind(&RenderingControl::setVolume,
++    mapAction("SetVolumeDB", bind(&RenderingControl::setVolume,
 +                                              this, _1, _2, true));
-+    m_udev->addActionMapping(this, "GetVolumeDBRange",
++    mapAction("GetVolumeDBRange",
 +                            bind(&RenderingControl::getVolumeDBRange, this, _1, _2));
-     m_udev->addActionMapping(this, "ListPresets", 
++    mapAction("ListPresets", 
                              bind(&RenderingControl::listPresets, this, _1, _2));
-     m_udev->addActionMapping(this, "SelectPreset", 
-@@ -74,6 +88,8 @@ enum RDCErrorCode {
+-    m_udev->addActionMapping(this, "SelectPreset", 
++    mapAction("SelectPreset", 
+                             bind(&RenderingControl::selectPreset, this, _1, _2));
+ 
+     m_dev->getmpdcli()->subscribe(MPDCli::MpdMixerEvt,
+@@ -74,6 +98,8 @@ enum RDCErrorCode {
  const std::string RenderingControl::serviceErrString(int error) const
  {
      switch(error) {
@@ -1356,7 +1450,7 @@ index 9b1108b..39733a7 100644
      case UPNP_AV_RC_INVALID_PRESET_NAME:
          return "Rendering Control Invalid Preset Name";
      case UPNP_AV_RC_INVALID_INSTANCE_ID:
-@@ -93,7 +109,7 @@ const std::string RenderingControl::serviceErrString(int error) const
+@@ -93,7 +119,7 @@ const std::string RenderingControl::serviceErrString(int error) const
  //  VolumeDB
  // LastChange contains all the variables that were changed since the last
  // event. For us that's at most Mute, Volume, VolumeDB
@@ -1365,7 +1459,7 @@ index 9b1108b..39733a7 100644
  //   <InstanceID val=”0”>
  //     <Mute channel=”Master” val=”0”/>
  //     <Volume channel=”Master” val=”24”/>
-@@ -107,7 +123,7 @@ bool RenderingControl::rdstateMToU(unordered_map<string, string>& status)
+@@ -107,7 +133,7 @@ bool RenderingControl::rdstateMToU(unordered_map<string, string>& status)
      if (volume < 0)
          volume = 0;
      status["Volume"] = SoapHelp::i2s(volume);
@@ -1374,7 +1468,7 @@ index 9b1108b..39733a7 100644
      status["Mute"] =  volume == 0 ? "1" : "0";
      return true;
  }
-@@ -122,13 +138,14 @@ bool RenderingControl::getEventData(bool all, std::vector<std::string>& names,
+@@ -122,13 +148,14 @@ bool RenderingControl::getEventData(bool all, std::vector<std::string>& names,
  bool RenderingControl::getEventDataNoFlush(
      bool all, std::vector<std::string>& names, std::vector<std::string>& values)
  {
@@ -1390,7 +1484,7 @@ index 9b1108b..39733a7 100644
                  "<InstanceID val=\"0\">\n");
  
      bool changefound = false;
-@@ -143,7 +160,7 @@ bool RenderingControl::getEventDataNoFlush(
+@@ -143,7 +170,7 @@ bool RenderingControl::getEventDataNoFlush(
  
          chgdata += "<";
          chgdata += it->first;
@@ -1399,7 +1493,7 @@ index 9b1108b..39733a7 100644
              chgdata += " channel=\"Master\"";
          }
          chgdata += " val=\"";
-@@ -189,47 +206,43 @@ void RenderingControl::onMpdEvent(const MpdStatus*)
+@@ -189,47 +216,43 @@ void RenderingControl::onMpdEvent(const MpdStatus*)
  //   specified in the service description (SCPD) available from the
  //   device.
  
@@ -1459,7 +1553,7 @@ index 9b1108b..39733a7 100644
      }
  
      int volume = m_dev->getvolume();
-@@ -242,24 +255,30 @@ int RenderingControl::setVolume(const SoapIncoming& sc, SoapOutgoing& data,
+@@ -242,24 +265,30 @@ int RenderingControl::setVolume(const SoapIncoming& sc, SoapOutgoing& data,
  {
      string channel;
      if (!sc.get("Channel", &channel) || channel.compare("Master")) {
@@ -1500,7 +1594,7 @@ index 9b1108b..39733a7 100644
  }
  
  int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
-@@ -268,7 +287,7 @@ int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
+@@ -268,7 +297,7 @@ int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
      // LOGDEB("RenderingControl::getVolume" << endl);
      string channel;
      if (!sc.get("Channel", &channel) || channel.compare("Master")) {
@@ -1509,7 +1603,7 @@ index 9b1108b..39733a7 100644
      }
      
      int volume = m_dev->getvolume();
-@@ -291,15 +310,14 @@ int RenderingControl::selectPreset(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -291,15 +320,14 @@ int RenderingControl::selectPreset(const SoapIncoming& sc, SoapOutgoing& data)
      string presetnm;
      
      if (!sc.get("PresetName", &presetnm)) {

@@ -7,6 +7,7 @@ from queue import Queue
 import socket
 import subprocess
 import sys
+import time
 import tempfile
 from threading import Thread
 from urllib.parse import urljoin, urlsplit
@@ -200,6 +201,8 @@ def check(location, host, events, media_requests):
 
     assert "audio/wav" in soap("ConnectionManager", "GetProtocolInfo")["Sink"]
     avt("SetPlayMode", NewPlayMode="NORMAL")
+    soap("AVTransport", "SetPlayMode", InstanceID=0, fault=712, NewPlayMode="SHUFFLE")
+    soap("AVTransport", "GetTransportInfo", InstanceID=99, fault=718)
     assert avt("GetTransportSettings")["PlayMode"] == "NORMAL"
     assert rcs("GetVolume")["CurrentVolume"] == "100"
     assert rcs("GetVolumeDB")["CurrentVolume"] == "0"
@@ -238,7 +241,25 @@ def check(location, host, events, media_requests):
     avt("SetAVTransportURI", CurrentURI="", CurrentURIMetaData="")
     assert avt("GetMediaInfo")["CurrentURI"] == ""
     assert avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED"
-    print("PASS SSDP, SCPD, GENA, SOAP transport, fixed volume and HTTP URI round trip")
+    next_metadata = metadata.replace('id="1"', 'id="2"')
+    avt("SetAVTransportURI", CurrentURI=uri, CurrentURIMetaData=metadata)
+    avt("SetNextAVTransportURI", NextURI=uri, NextURIMetaData=next_metadata)
+    avt("Play", Speed=1)
+    deadline = time.monotonic() + 14
+    promoted = False
+    started = time.monotonic()
+    while time.monotonic() < deadline:
+        media = avt("GetMediaInfo")
+        if media["CurrentURIMetaData"] == next_metadata:
+            promoted = True
+            assert media["NextURI"] == ""
+        if promoted and avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED":
+            break
+        time.sleep(0.2)
+    else:
+        raise AssertionError("Queued duplicate URI did not advance and stop")
+    assert time.monotonic() - started >= 9, "The final five-second track stopped early"
+    print("PASS SSDP, SCPD, GENA, SOAP, fixed volume, HTTP URI round trip and two-track EOS")
 
 
 if __name__ == "__main__":
