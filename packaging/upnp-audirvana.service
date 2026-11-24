@@ -1,0 +1,22 @@
+[Unit]
+Description=UPnP-Audirvana audio renderer
+Wants=network-online.target
+After=network-online.target sound.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+SupplementaryGroups=audio
+RuntimeDirectory=upnp-audirvana
+RuntimeDirectoryMode=0700
+CacheDirectory=upnp-audirvana
+UMask=0077
+Environment=UPNP_AUDIRVANA_CONFIG=/etc/upnp-audirvana/renderer.conf
+Environment=LD_LIBRARY_PATH=/opt/upnp-audirvana/lib
+ExecStart=/opt/upnp-audirvana/bin/upnp-audirvana --no-daemon --stderr /etc/upnp-audirvana/mpd.conf
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,140 @@
+diff --git a/meson.build b/meson.build
+index 72e86b9..137ad1d 100644
+--- a/meson.build
++++ b/meson.build
+@@ -614,10 +614,12 @@ if is_android
+   install_dir = meson.current_source_dir() / 'android/app/src/main/jniLibs' / android_abi
+ else
+   target_type = 'executable'
+-  target_name = 'mpd'
++  target_name = 'upnp-audirvana'
+   install_dir = get_option('bindir')
+ endif
+ 
++renderer_dep = subproject('audirvana-renderer').get_variable('renderer_dep')
++
+ mpd = build_target(
+   target_name,
+   sources,
+@@ -648,6 +650,7 @@ mpd = build_target(
+     sqlite_dep,
+     zeroconf_dep,
+     more_deps,
++    renderer_dep,
+     chromaprint_dep,
+     fmt_dep,
+   ],
+diff --git a/src/CommandLine.cxx b/src/CommandLine.cxx
+index 02184d3..aeb8d25 100644
+--- a/src/CommandLine.cxx
++++ b/src/CommandLine.cxx
+@@ -103,7 +103,7 @@ static constexpr Domain cmdline_domain("cmdline");
+ [[noreturn]]
+ static void version()
+ {
+-	fmt::print("Music Player Daemon " VERSION " ({})"
++	fmt::print("UPnP-Audirvana v0.1.0-preview.1 (Music Player Daemon " VERSION ", {})"
+ 		   "\n"
+ 		   "Copyright 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
+ 		   "Copyright 2008-2025 Max Kellermann <max.kellermann@gmail.com>\n"
+diff --git a/src/Main.cxx b/src/Main.cxx
+index a2bc8ce..3151e1b 100644
+--- a/src/Main.cxx
++++ b/src/Main.cxx
+@@ -45,6 +45,15 @@
+ #include "config/PartitionConfig.hxx"
+ #include "util/ScopeExit.hxx"
+ 
++#include <atomic>
++#include <csignal>
++#include <cstdlib>
++#include <stdexcept>
++#include <thread>
++#include <unistd.h>
++
++int RunAudirvanaRenderer(std::stop_token stop, const char *config);
++
+ #ifdef ENABLE_DAEMON
+ #include "unix/Daemon.hxx"
+ #endif
+@@ -512,9 +521,31 @@ MainConfigured(const CommandLineOptions &options,
+ 	sd_notify(0, "READY=1");
+ #endif
+ 
+-	/* run the main loop */
++	/* Keep UPnP callbacks off the MPD event loop. They use the private
++	   Unix socket to issue commands to this instance. */
++	const char *renderer_config = std::getenv("UPNP_AUDIRVANA_CONFIG");
++	if (renderer_config == nullptr || *renderer_config == '\0')
++		renderer_config = "/etc/upnp-audirvana/renderer.conf";
++	if (geteuid() == 0)
++		throw std::runtime_error("Run upnp-audirvana as an unprivileged user");
++
++	std::atomic_bool renderer_failed{false};
++	std::jthread renderer([&](std::stop_token stop) {
++		try {
++			renderer_failed = RunAudirvanaRenderer(stop, renderer_config) != 0;
++		} catch (...) {
++			LogError(std::current_exception());
++			renderer_failed = true;
++		}
++		if (renderer_failed)
++			instance.event_loop.InjectBreak();
++	});
++
+ 	instance.event_loop.Run();
+ 
++	renderer.request_stop();
++	renderer.join();
++
+ #ifdef _WIN32
+ 	win32_app_stopping();
+ #endif
+@@ -526,6 +557,8 @@ MainConfigured(const CommandLineOptions &options,
+ 
+ 	instance.BeginShutdownUpdate();
+ 	instance.BeginShutdownPartitions();
++	if (renderer_failed)
++		throw std::runtime_error("UPnP renderer failed");
+ }
+ 
+ #ifdef ANDROID
+diff --git a/src/decoder/plugins/DsdiffDecoderPlugin.cxx b/src/decoder/plugins/DsdiffDecoderPlugin.cxx
+index 20381ff..239d9b7 100644
+--- a/src/decoder/plugins/DsdiffDecoderPlugin.cxx
++++ b/src/decoder/plugins/DsdiffDecoderPlugin.cxx
+@@ -479,6 +479,8 @@ static const char *const dsdiff_suffixes[] = {
+ static const char *const dsdiff_mime_types[] = {
+ 	"application/x-dff",
+ 	"audio/x-dff",
++	"audio/dff",
++	"audio/dsd",
+ 	"audio/x-dsd",
+ 	nullptr
+ };
+diff --git a/src/decoder/plugins/DsfDecoderPlugin.cxx b/src/decoder/plugins/DsfDecoderPlugin.cxx
+index 3fb9cd0..4b4b87f 100644
+--- a/src/decoder/plugins/DsfDecoderPlugin.cxx
++++ b/src/decoder/plugins/DsfDecoderPlugin.cxx
+@@ -344,6 +344,8 @@ static const char *const dsf_suffixes[] = {
+ static const char *const dsf_mime_types[] = {
+ 	"application/x-dsf",
+ 	"audio/x-dsf",
++	"audio/dsf",
++	"audio/dsd",
+ 	"audio/x-dsd",
+ 	nullptr
+ };
+diff --git a/src/decoder/plugins/SndfileDecoderPlugin.cxx b/src/decoder/plugins/SndfileDecoderPlugin.cxx
+index 7f27fde..d42cddb 100644
+--- a/src/decoder/plugins/SndfileDecoderPlugin.cxx
++++ b/src/decoder/plugins/SndfileDecoderPlugin.cxx
+@@ -308,6 +308,8 @@ static const char *const sndfile_mime_types[] = {
+ 	"audio/wav",
+ 	"audio/aiff",
+ 	"audio/x-wav",
++	"audio/wave",
++	"audio/vnd.wave",
+ 	"audio/x-aiff",
+ 
+ 	/* what are the MIME types of the other supported formats? */

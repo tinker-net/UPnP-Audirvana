@@ -1,0 +1,51 @@
+name: Build DietPi ARM64
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-24.04-arm
+    container: debian:13
+    permissions:
+      contents: write
+    steps:
+      - name: Install Debian 13 build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential ca-certificates curl git meson ninja-build pkg-config gh \
+            libasound2-dev libcurl4-openssl-dev libexpat1-dev \
+            libflac-dev libfmt-dev libid3tag0-dev libjsoncpp-dev libmicrohttpd-dev \
+            libmpdclient-dev libmpg123-dev libsndfile1-dev
+      - uses: actions/checkout@v4
+      - name: Build ARM64 package
+        run: JOBS=4 ./build.sh
+      - name: Check packaged executable
+        shell: bash
+        run: |
+          archive=$(find . -maxdepth 1 -name 'UPnP-Audirvana-v*-arm64.tar.gz' -print -quit)
+          mkdir /tmp/renderer-check
+          tar -xzf "$archive" -C /tmp/renderer-check
+          prefix=/tmp/renderer-check/opt/upnp-audirvana
+          LD_LIBRARY_PATH="$prefix/lib" "$prefix/bin/upnp-audirvana" --version
+          sha256sum "${archive#./}" > "${archive#./}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UPnP-Audirvana-DietPi-arm64
+          path: |
+            UPnP-Audirvana-v*-arm64.tar.gz
+            UPnP-Audirvana-v*-arm64.tar.gz.sha256
+          if-no-files-found: error
+      - name: Attach package to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" UPnP-Audirvana-v*-arm64.tar.gz*

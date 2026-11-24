@@ -1,0 +1,954 @@
+diff --git a/meson.build b/meson.build
+index b7cff6d..a00cec6 100644
+--- a/meson.build
++++ b/meson.build
+@@ -3,7 +3,7 @@ project(
+   'cpp',
+   license: 'LGPL 2.1+',
+   version: '1.9.17',
+-  default_options: ['cpp_std=c++17', 'buildtype=debugoptimized'],
++  default_options: ['cpp_std=c++20', 'buildtype=debugoptimized'],
+   meson_version: '>=0.49',
+ )
+ 
+@@ -72,16 +72,16 @@ if get_option('upmpdcli')
+     configuration: auto,
+   )
+   
+-  upmpdcli_datadir = get_option('prefix') / get_option('datadir') / 'upmpdcli'
++  upmpdcli_datadir = get_option('prefix') / get_option('datadir') / 'upnp-audirvana'
+   
+-  executable(
+-    'upmpdcli',
++  renderer = static_library(
++    'audirvana-renderer',
+     upmpdcli_sources,
+     include_directories: upmpdcli_incdir,
+     dependencies: deps,
+-    install: true,
+     cpp_args: ['-DDATADIR="' + upmpdcli_datadir + '"', '-DMDU_INCLUDE_LOG="libupnpp/log.h"'],
+   )
++  renderer_dep = declare_dependency(link_with: renderer, dependencies: deps)
+ endif
+ #### End upmpdcli
+ 
+@@ -157,7 +157,7 @@ if get_option('scctl')
+ 
+   install_subdir(
+     'web',
+-    install_dir: get_option('datadir') / 'upmpdcli',
++    install_dir: get_option('datadir') / 'upnp-audirvana',
+     exclude_directories: '__pycache__',
+   )
+ endif
+@@ -185,70 +185,4 @@ upmpdcli_data = files(
+   'src/upmpdcli.conf-dist',
+   'src/upmpdcli.conf-xml',
+ )
+-install_data(upmpdcli_data, install_dir: get_option('datadir') / 'upmpdcli')
+-
+-install_data('src/upmpdcli.conf-dist', install_dir: '/etc')
+-
+-install_subdir(
+-  'rdpl2stream',
+-  install_dir: get_option('datadir') / 'upmpdcli',
+-  exclude_directories: '__pycache__',
+-  exclude_files: [
+-    'tststreams.txt',
+-  ],
+-)
+-
+-install_subdir(
+-  'samplescripts',
+-  install_dir: get_option('datadir') / 'upmpdcli' / 'src_scripts',
+-  strip_directory: true,
+-)
+-
+-install_subdir(
+-  'src/radio_scripts',
+-  install_dir: get_option('datadir') / 'upmpdcli',
+-  exclude_directories: 'npr',
+-)
+-
+-install_subdir(
+-  'src/mediaserver/cdplugins',
+-  install_dir: get_option('datadir') / 'upmpdcli',
+-  exclude_directories: [
+-    'attic',
+-    '.deps',
+-    'uprcl/testrunuprcl.sh',
+-    'bbc/__pycache__',
+-    'hra/__pycache__',
+-    'mother-earth-radio/__pycache__',
+-    'pycommon/__pycache__',
+-    'qobuz/__pycache__',
+-    'qobuz/api/__pycache__',
+-    'radio-browser/__pycache__',
+-    'radio-paradise/__pycache__',
+-    'subsonic/__pycache__',
+-    'tidal/__pycache__',
+-    'upradios/__pycache__',
+-    'uprcl/__pycache__',
+-  ],
+-  exclude_files: [
+-    'abuffer.h',
+-    'bufxchange.h',
+-    'cdplugin.hxx',
+-    'cmdtalk.cpp',
+-    'cmdtalk.h',
+-    'curlfetch.cpp',
+-    'curlfetch.h',
+-    'netfetch.cpp',
+-    'netfetch.h',
+-    'plgwithslave.cxx',
+-    'plgwithslave.hxx',
+-    'streamproxy.cpp',
+-    'streamproxy.h',
+-    'uprcl/testrunuprcl.sh',
+-  ],
+-)
+-
+-meson.add_install_script('tools/installconfig.sh')
+-
+-install_man('man/upmpdcli.1')
+-install_man('man/upmpdcli.conf.5')
++install_data(upmpdcli_data, install_dir: get_option('datadir') / 'upnp-audirvana')
+diff --git a/src/RenderingControl.xml b/src/RenderingControl.xml
+index ecdc160..0dda1a9 100644
+--- a/src/RenderingControl.xml
++++ b/src/RenderingControl.xml
+@@ -115,6 +115,71 @@
+         </argument>
+       </argumentList>
+     </action>
++    <action>
++      <name>GetVolumeDB</name>
++      <argumentList>
++        <argument>
++          <name>InstanceID</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>Channel</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>CurrentVolume</name>
++          <direction>out</direction>
++          <relatedStateVariable>VolumeDB</relatedStateVariable>
++        </argument>
++      </argumentList>
++    </action>
++    <action>
++      <name>SetVolumeDB</name>
++      <argumentList>
++        <argument>
++          <name>InstanceID</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>Channel</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>DesiredVolume</name>
++          <direction>in</direction>
++          <relatedStateVariable>VolumeDB</relatedStateVariable>
++        </argument>
++      </argumentList>
++    </action>
++    <action>
++      <name>GetVolumeDBRange</name>
++      <argumentList>
++        <argument>
++          <name>InstanceID</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_InstanceID</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>Channel</name>
++          <direction>in</direction>
++          <relatedStateVariable>A_ARG_TYPE_Channel</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>MinValue</name>
++          <direction>out</direction>
++          <relatedStateVariable>VolumeDB</relatedStateVariable>
++        </argument>
++        <argument>
++          <name>MaxValue</name>
++          <direction>out</direction>
++          <relatedStateVariable>VolumeDB</relatedStateVariable>
++        </argument>
++      </argumentList>
++    </action>
+   </actionList>
+   <serviceStateTable>
+     <stateVariable sendEvents="no">
+@@ -138,6 +203,15 @@
+         <step>1</step>
+       </allowedValueRange>
+     </stateVariable>
++    <stateVariable sendEvents="no">
++      <name>VolumeDB</name>
++      <dataType>i2</dataType>
++      <allowedValueRange>
++        <minimum>-10240</minimum>
++        <maximum>0</maximum>
++        <step>1</step>
++      </allowedValueRange>
++    </stateVariable>
+     <stateVariable sendEvents="no">
+       <name>A_ARG_TYPE_Channel</name>
+       <dataType>string</dataType>
+diff --git a/src/avtransport.cxx b/src/avtransport.cxx
+index 6d90a98..46aebaf 100644
+--- a/src/avtransport.cxx
++++ b/src/avtransport.cxx
+@@ -239,43 +239,13 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+     status["TransportStatus"] = m_dev->getmpdcli()->ok() ? "OK" : "ERROR_OCCURRED";
+     status["TransportPlaySpeed"] = "1";
+ 
+-    const string& uri = mpds.currentsong.rsrc.uri;
+-
+-    // MPD may have switched to the next track, or may be playing something else altogether if some
+-    // other client told it to.  Also the current metadata may come from mpd, or be the bogus
+-    // unknown entry (will have <orig>mpd</orig> in both cases because null id in the song). In
+-    // these cases, build meta from the mpd song.
+-    LOGDEB1("AVT::tpstateMToU: curmeta: " << m_curMetadata << "\n");
+-    if (m_dev->radioPlaying() || m_curMetadata.find("<orig>mpd</orig>") != string::npos) {
+-        URLDEB("AVT::tpstateMToU: radio playing, or current metadata from mpd: didlmake\n");
+-        m_curMetadata = didlmake(mpds.currentsong);
+-    } else {
+-        if (!uri.empty() && uri == m_nextUri) {
+-            URLDEB("AVT::tpstateMToU m_uri is m_nextUri. Metadata -> nextMetadata\n");
+-            m_uri = m_nextUri;
+-            m_curMetadata = m_nextMetadata;
+-            m_nextUri.clear();
+-            m_nextMetadata.clear();
+-        } else if (!uri.empty() && uri != m_uri) {
+-            URLDEB("AVT::tpstateMToU: uri [" << uri << "] m_uri [" << m_uri << "]\n");
+-            // Someone else is controlling mpd. Maybe our own ohplaylist.
+-            m_nextMetadata.clear();
+-            m_nextUri.clear();
+-            m_uri = uri;
+-            if (!m_ohp || !m_ohp->cacheFind(uri, m_curMetadata)) {
+-                URLDEB("AVT::tpstateMToU: unexpected uri change: didlmake\n");
+-                m_curMetadata = is_song ? didlmake(mpds.currentsong) : "";
+-            } else {
+-                URLDEB("AVT::tpstateMToU: unexpected uri change: from ohcache\n");
+-            }
+-        }
+-    }
++    syncMetadata(mpds);
+     /*testing m_curMetadata = "NOT_IMPLEMENTED";*/
+     
+     status["CurrentTrack"] = "1";
+     string playmedium("NONE");
+     if (is_song)
+-        playmedium = m_uri.find("http://") == 0 ? "HDD" : "NETWORK";
++        playmedium = "NETWORK";
+     status["NumberOfTracks"] = "1";
+     status["CurrentMediaDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
+     status["CurrentTrackDuration"] = is_song ? upnpduration(mpds.songlenms):"00:00:00";
+@@ -313,9 +283,50 @@ bool AVTransport::tpstateMToU(unordered_map<string, string>& status)
+     return true;
+ }
+ 
++void AVTransport::syncMetadata(const MpdStatus& mpds)
++{
++    const bool is_song = mpds.state == MpdStatus::MPDS_PLAY ||
++                         mpds.state == MpdStatus::MPDS_PAUSE;
++    const string& uri = mpds.currentsong.rsrc.uri;
++
++    if (!is_song)
++        return;
++
++    // MPD may have switched to the next track, or may be playing something else altogether if some
++    // other client told it to.  Also the current metadata may come from mpd, or be the bogus
++    // unknown entry (will have <orig>mpd</orig> in both cases because null id in the song). In
++    // these cases, build meta from the mpd song.
++    LOGDEB1("AVT::tpstateMToU: curmeta: " << m_curMetadata << "\n");
++    if (m_dev->radioPlaying() || m_curMetadata.find("<orig>mpd</orig>") != string::npos) {
++        URLDEB("AVT::tpstateMToU: radio playing, or current metadata from mpd: didlmake\n");
++        m_curMetadata = didlmake(mpds.currentsong);
++    } else {
++        if (!uri.empty() && uri == m_nextUri) {
++            URLDEB("AVT::tpstateMToU m_uri is m_nextUri. Metadata -> nextMetadata\n");
++            m_uri = m_nextUri;
++            m_curMetadata = m_nextMetadata;
++            m_nextUri.clear();
++            m_nextMetadata.clear();
++        } else if (!uri.empty() && uri != m_uri) {
++            URLDEB("AVT::tpstateMToU: uri [" << uri << "] m_uri [" << m_uri << "]\n");
++            // Someone else is controlling mpd. Maybe our own ohplaylist.
++            m_nextMetadata.clear();
++            m_nextUri.clear();
++            m_uri = uri;
++            if (!m_ohp || !m_ohp->cacheFind(uri, m_curMetadata)) {
++                URLDEB("AVT::tpstateMToU: unexpected uri change: didlmake\n");
++                m_curMetadata = is_song ? didlmake(mpds.currentsong) : "";
++            } else {
++                URLDEB("AVT::tpstateMToU: unexpected uri change: from ohcache\n");
++            }
++        }
++    }
++}
++
+ bool AVTransport::getEventData(bool all, std::vector<std::string>& names, 
+                                     std::vector<std::string>& values)
+ {
++    std::lock_guard lock(m_state_mutex);
+     unordered_map<string, string> newtpstate;
+     tpstateMToU(newtpstate);
+     if (all)
+@@ -323,7 +334,7 @@ bool AVTransport::getEventData(bool all, std::vector<std::string>& names,
+ 
+     bool changefound = false;
+ 
+-    string chgdata("<Event xmlns=\"urn:schemas-upnp-org:metadata-1-0/AVT_RCS\">\n"
++    string chgdata("<Event xmlns=\"urn:schemas-upnp-org:metadata-1-0/AVT\">\n"
+                    "<InstanceID val=\"0\">\n");
+ 
+     for (const auto& [nm, newvalue] : newtpstate) {
+@@ -371,6 +382,7 @@ void AVTransport::onMpdEvent(const MpdStatus*)
+ // http://192.168.4.4:8200/MediaItems/246.mp3
+ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, bool setnext)
+ {
++    std::lock_guard lock(m_state_mutex);
+ #ifdef NO_SETNEXT
+     // pretend not to support setnext:
+     if (setnext) {
+@@ -385,6 +397,26 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+         return UPNP_E_INVALID_PARAM;
+     }
+ 
++    if (uri.empty()) {
++        auto *mpd = m_dev->getmpdcli();
++        if (setnext) {
++            const auto status = m_dev->getMpdStatus();
++            if (status.songpos >= 0 && status.songpos + 1 < status.qlen &&
++                !mpd->deletePosRange(status.songpos + 1, status.qlen))
++                return UPNP_E_INTERNAL_ERROR;
++        } else {
++            if (!mpd->clearQueue())
++                return UPNP_E_INTERNAL_ERROR;
++            m_uri.clear();
++            m_curMetadata.clear();
++        }
++        m_nextUri.clear();
++        m_nextMetadata.clear();
++        return UPNP_E_SUCCESS;
++    }
++    if (uri.compare(0, 7, "http://") != 0 && uri.compare(0, 8, "https://") != 0)
++        return UPNP_E_INVALID_PARAM;
++
+     bool forcenocheck;
+     if (!morphSpecialUrl(uri, forcenocheck)) {
+         LOGERR("OHPlaylist::insert: bad uri: " << uri << "\n");
+@@ -522,7 +554,9 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+ 
+ int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
+ {
++    std::lock_guard lock(m_state_mutex);
+     const MpdStatus &mpds = m_dev->getMpdStatus();
++    syncMetadata(mpds);
+     LOGDEB1("AVTransport::getPositionInfo. State: "<<mpdsToTState(mpds)<<" ("<<mpds.state<<")\n");
+ 
+     bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
+@@ -558,7 +592,9 @@ int AVTransport::getDeviceCapabilities(const SoapIncoming& sc, SoapOutgoing& dat
+ 
+ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+ {
++    std::lock_guard lock(m_state_mutex);
+     const MpdStatus &mpds = m_dev->getMpdStatus();
++    syncMetadata(mpds);
+     LOGDEB("AVTransport::getMediaInfo. State: " << mpds.state << "\n");
+ 
+     bool is_song = (mpds.state == MpdStatus::MPDS_PLAY) || (mpds.state == MpdStatus::MPDS_PAUSE);
+@@ -578,7 +614,7 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+     }
+     string playmedium("NONE");
+     if (!m_uri.empty())
+-        playmedium = m_uri.find("http://") == 0 ? "HDD" : "NETWORK";
++        playmedium = "NETWORK";
+     data.addarg("PlayMedium", playmedium);
+     data.addarg("RecordMedium", "NOT_IMPLEMENTED");
+     data.addarg("WriteStatus", "NOT_IMPLEMENTED");
+@@ -588,6 +624,7 @@ int AVTransport::getMediaInfo(const SoapIncoming& sc, SoapOutgoing& data)
+ int AVTransport::playcontrol(
+     const SoapIncoming& sc, SoapOutgoing& data, int what)
+ {
++    std::lock_guard lock(m_state_mutex);
+     const MpdStatus &mpds = m_dev->getMpdStatus();
+     LOGDEB("AVTransport::playcontrol State: " << mpds.state << " what " << what << "\n");
+ 
+diff --git a/src/avtransport.hxx b/src/avtransport.hxx
+index be89a5e..47788b2 100644
+--- a/src/avtransport.hxx
++++ b/src/avtransport.hxx
+@@ -17,6 +17,7 @@
+ #ifndef _AVTRANSPORT_H_X_INCLUDED_
+ #define _AVTRANSPORT_H_X_INCLUDED_
+ 
++#include <mutex>
+ #include <set>
+ #include <string>
+ #include <unordered_map>
+@@ -62,6 +63,9 @@ private:
+     // Translate MPD state to AVTransport state variables.
+     bool tpstateMToU(std::unordered_map<std::string, std::string>& state);
+ 
++    void syncMetadata(const MpdStatus&);
++    std::mutex m_state_mutex;
++
+     UpMpd *m_dev;
+     UpMpdMediaRenderer *m_udev;
+     OHPlaylist *m_ohp;
+diff --git a/src/main.cxx b/src/main.cxx
+index 82ecd8d..6e28619 100644
+--- a/src/main.cxx
++++ b/src/main.cxx
+@@ -29,6 +29,9 @@
+ #include <grp.h>
+ #include <assert.h>
+ 
++#include <condition_variable>
++#include <mutex>
++#include <stop_token>
+ #include <iostream>            
+ #include <string>              
+ #include <unordered_map>       
+@@ -143,13 +146,11 @@ string g_configfilename;
+ ConfSimple *g_state;
+ bool g_enableL16 = true;
+ bool g_lumincompat = false;
+-bool g_mainShouldExit{false};
+ std::string g_npupnpwebdocroot{"1"};
+ 
+-static void onsig(int)
++static void stopRenderer()
+ {
+     LOGDEB("Got sig" << endl);
+-    g_mainShouldExit = true;
+     for (auto& dev : devs) {
+         // delete has a tendancy to crash (it works most of the time though). Anyway, we're exiting,
+         // so just call shouldExit() which will send the byebyes.
+@@ -161,21 +162,6 @@ static void onsig(int)
+     }
+ }
+ 
+-static const int catchedSigs[] = {SIGINT, SIGQUIT, SIGTERM};
+-static void setupsigs()
+-{
+-    struct sigaction action;
+-    action.sa_handler = onsig;
+-    action.sa_flags = 0;
+-    sigemptyset(&action.sa_mask);
+-    for (unsigned int i = 0; i < sizeof(catchedSigs) / sizeof(int); i++)
+-        if (signal(catchedSigs[i], SIG_IGN) != SIG_IGN) {
+-            if (sigaction(catchedSigs[i], &action, 0) < 0) {
+-                perror("Sigaction failed");
+-            }
+-        }
+-}
+-
+ static UpnpDevice *rootdevice{nullptr};
+ static MediaServer *mediaserver{nullptr};
+ static std::string uuidMS;
+@@ -242,8 +228,18 @@ int getIntOptionValue(const std::string& nm, int dflt)
+     return atoi(value.c_str());
+ }
+ 
+-int main(int argc, char *argv[])
++int RunAudirvanaRenderer(std::stop_token stop, const char *config)
+ {
++    std::mutex shutdown_mutex;
++    std::condition_variable_any shutdown;
++    char program[] = "upnp-audirvana";
++    char renderer_only[] = "-m";
++    char renderer_mode[] = "1";
++    char config_arg[] = "-c";
++    std::string config_path(config);
++    char *args[] = {program, renderer_only, renderer_mode, config_arg, config_path.data(), nullptr};
++    char **argv = args;
++    int argc = 5;
+     int msm = 0;
+     const char *cp;
+ 
+@@ -339,8 +335,8 @@ int main(int argc, char *argv[])
+         getOptionValue("upnpip", upnpip);
+     }
+     int loglevel = getIntOptionValue("loglevel", Logger::LLINF);
+-    bool enableOH = getBoolOptionValue("openhome", true);
+-    bool enableAV = getBoolOptionValue("upnpav", true);
++    const bool enableOH = false;
++    const bool enableAV = true;
+     unsigned short upport = getIntOptionValue("upnpport", 0);
+     if (getOptionValue("mpdport", value) && !value.empty()) {
+         mpdport = atoi(value.c_str());
+@@ -679,10 +675,12 @@ int main(int argc, char *argv[])
+                           LibUPnP::UPNPPINIT_OPTION_END)) {
+             break;
+         }
+-        if (g_mainShouldExit) {
+-            return 1;
++        {
++            std::unique_lock lock(shutdown_mutex);
++            shutdown.wait_for(lock, stop, std::chrono::seconds(libretrysecs), [] { return false; });
+         }
+-        sleep(libretrysecs);
++        if (stop.stop_requested())
++            return 0;
+         libretrysecs = MIN(2*libretrysecs, 120);
+     }
+     mylib = LibUPnP::getLibUPnP();
+@@ -707,7 +705,8 @@ int main(int argc, char *argv[])
+         pidfilename = pidfilename + "-ms";
+     }
+ 
+-    setupsigs();
++    if (stop.stop_requested())
++        return 0;
+ 
+     if (inprocessms && !startMediaServer(enableMediaServer)) {
+         LOGERR("Could not start media server\n");
+@@ -726,13 +725,18 @@ int main(int argc, char *argv[])
+                 return 1;
+             }
+             if (!mpdclip->ok()) {
+-                if (g_mainShouldExit) {
+-                    return 1;
+-                }
++                if (stop.stop_requested())
++                    return 0;
+                 LOGERR("MPD connection failed" << "\n");
+                 delete mpdclip;
+-                mpdclip = 0;
+-                sleep(mpdretrysecs);
++                mpdclip = nullptr;
++                {
++                    std::unique_lock lock(shutdown_mutex);
++                    shutdown.wait_for(lock, stop, std::chrono::seconds(mpdretrysecs),
++                                      [] { return false; });
++                }
++                if (stop.stop_requested())
++                    return 0;
+                 mpdretrysecs = MIN(2*mpdretrysecs, 120);
+             } else {
+                 break;
+@@ -798,7 +802,11 @@ int main(int argc, char *argv[])
+         mediarenderer->startnoloops();
+     }
+ 
+-    pause();
++    {
++        std::unique_lock lock(shutdown_mutex);
++        shutdown.wait(lock, stop, [] { return false; });
++    }
++    stopRenderer();
+     LOGDEB("Event loop returned" << endl);
+     return 0;
+ }
+diff --git a/src/mpdcli.cxx b/src/mpdcli.cxx
+index 2f0e79a..2634251 100644
+--- a/src/mpdcli.cxx
++++ b/src/mpdcli.cxx
+@@ -16,6 +16,7 @@
+  */
+ #include "mpdcli.hxx"
+ 
++#include <sys/socket.h>
+ #include <mpd/client.h>
+ 
+ #include <stddef.h>
+@@ -139,14 +140,8 @@ bool MPDCli::startEventLoop()
+ {
+     LOGDEB("MPDCli::startEventLoop\n");
+     std::lock_guard<std::mutex> lck(m_idlemutex);
+-    if (nullptr == m_idleconn) {
+-        if (m_idlethread.joinable()) {
+-            m_idlethread.join();
+-        }
++    if (!m_idleneedstop && !m_idlethread.joinable())
+         m_idlethread = std::thread(bind(&MPDCli::eventLoop, this));
+-    } else {
+-        LOGINF("MPDCli::startEventLoop: already started\n");
+-    }
+     return true;
+ }
+ 
+@@ -154,14 +149,13 @@ void MPDCli::stopEventLoop()
+ {
+     LOGDEB("MPDCli::stopEventLoop\n");
+     std::unique_lock<std::mutex> lck(m_idlemutex);
+-    if (m_idleconn) {
+-        m_idleneedstop = true;
+-        mpd_send_noidle(m_idleconn);
+-        lck.unlock();
++    m_idleneedstop = true;
++    if (m_idleconn)
++        shutdown(mpd_connection_get_fd(m_idleconn), SHUT_RDWR);
++    lck.unlock();
++    if (m_idlethread.joinable())
+         m_idlethread.join();
+-        m_idlethread = std::thread{};
+-        m_idleneedstop = false;
+-    }
++    m_idleneedstop = false;
+ }
+ 
+ bool MPDCli::takeEvents(MPDCli *from)
+@@ -207,8 +201,12 @@ bool MPDCli::eventLoop()
+ top:
+     for (;;) {
+         std::lock_guard<std::mutex> lck(m_idlemutex);
++        if (m_idleneedstop)
++            break;
++        if (m_idleconn)
++            mpd_connection_free(m_idleconn);
+         m_idleconn = mpd_connection_new(m_host.c_str(), m_port, m_timeoutms);
+-        if (nullptr == m_idleconn) {
++        if (nullptr == m_idleconn || mpd_connection_get_error(m_idleconn) != MPD_ERROR_SUCCESS) {
+             LOGINF("MPDCli::eventloop: could not open connection\n");
+             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+             continue;
+@@ -224,6 +222,8 @@ top:
+         break;
+     }
+     MpdStatus::State st;
++    if (m_idleneedstop)
++        goto cleanup;
+     {
+         std::unique_lock<std::mutex> lock(m_mutex);
+         updStatus();
+@@ -231,23 +231,16 @@ top:
+     }
+     pollerCtl(st);
+     for (;;) {
+-        if (m_idleneedstop) {
+-            m_idleneedstop = false;
++        if (m_idleneedstop)
+             break;
+-        }
+-        // There is a short window here where idleneedstop could be set after we tested it and
+-        // send_noidle called before we enter run_idle, probably resulting in our sleeping forever?
+-        // Not sure of how this could be fixed.
+         enum mpd_idle mask = mpd_run_idle_mask(m_idleconn, (enum mpd_idle)o_idle_mask);
+         if (mask == 0) {
+             LOGERR("MPDCli::eventloop: mpd_run_idle_mask returned 0\n");
+             // This can happen if mpd went awol, or if we're asked to
+             // stop. In the first case, try to reconnect, else exit
+             // the loop
+-            if (m_idleneedstop) {
+-                m_idleneedstop = false;
++            if (m_idleneedstop)
+                 break;
+-            }
+             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+             goto top;
+         }
+@@ -273,10 +266,12 @@ top:
+         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+     }
+     
++cleanup:
+     pollerCtl(MpdStatus::MPDS_STOP);
+ 
+     std::lock_guard<std::mutex> lck(m_idlemutex);
+-    mpd_connection_free(m_idleconn);
++    if (m_idleconn)
++        mpd_connection_free(m_idleconn);
+     m_idleconn = nullptr;
+     return false;
+ }
+diff --git a/src/mpdcli.hxx b/src/mpdcli.hxx
+index 71b67cd..20ae85f 100644
+--- a/src/mpdcli.hxx
++++ b/src/mpdcli.hxx
+@@ -17,6 +17,7 @@
+ #ifndef _MPDCLI_H_X_INCLUDED_
+ #define _MPDCLI_H_X_INCLUDED_
+ 
++#include <atomic>
+ #include <regex.h>
+ #include <string>
+ #include <cstdio>
+@@ -144,7 +145,7 @@ private:
+     // Protect idleconn: We need to use it from the main thread to
+     // tell the idle thread to stop.
+     std::mutex m_idlemutex;
+-    bool m_idleneedstop{false};
++    std::atomic_bool m_idleneedstop{false};
+     // thread to listen to MPD events.
+     std::thread m_idlethread;
+     // MPD does not report idle events for play time change. We poll
+@@ -165,7 +166,7 @@ private:
+     int m_premutevolume{0};
+     // Volume that we use when MPD is stopped (does not return a
+     // volume in the status)
+-    int m_cachedvolume{50}; 
++    int m_cachedvolume{100};
+     std::string m_host;
+     int m_port;
+     int m_timeoutms{2000};
+diff --git a/src/protocolinfo.txt b/src/protocolinfo.txt
+index 446ad99..f53a5d4 100644
+--- a/src/protocolinfo.txt
++++ b/src/protocolinfo.txt
+@@ -1,56 +1,17 @@
+-# Protocol info data. #-started comments are allowed alone on a line (not
+-# after data). White space / newlines will be stripped and everything else
+-# concatenated 
+-# Lines beginning with @ enable dynamic editing of the data at startup,
+-# depending, e.g. on mpd version. If you want static data, just replace the
+-# @xx@ tag with whatever you want (e.g. # or empty), or delete the lines.
+-#
+-# Note that some MIME types don't really officially exist, but some media
+-# servers use them anyway (e.g. audio/mp3).
+-
+-#http-get:*:audio/mpeg:DLNA.ORG_PN=MP3,
+-#http-get:*:audio/x-flac:DLNA.ORG_PN=FLAC,
+-
+-@ENABLEL16@http-get:*:audio/L16:DLNA.ORG_PN=LPCM,
+-
+-http-get:*:application/flac:*,
+-http-get:*:application/x-flac:*,
+-http-get:*:application/ogg:*,
+-http-get:*:application/vnd.apple.mpegurl:*,
+-http-get:*:application/x-mpegurl:*,
++# Formats supported by the renderer build.
++http-get:*:audio/L16:DLNA.ORG_PN=LPCM,
++http-get:*:audio/L24:*,
+ http-get:*:audio/flac:*,
+ http-get:*:audio/x-flac:*,
+-http-get:*:audio/aac:*,
+-http-get:*:audio/x-aiff:*,
+-http-get:*:audio/aif:*,
++http-get:*:audio/wav:*,
++http-get:*:audio/x-wav:*,
++http-get:*:audio/wave:*,
+ http-get:*:audio/aiff:*,
++http-get:*:audio/x-aiff:*,
++http-get:*:audio/dsf:*,
++http-get:*:audio/x-dsf:*,
+ http-get:*:audio/dff:*,
+ http-get:*:audio/x-dff:*,
+ http-get:*:audio/dsd:*,
+ http-get:*:audio/x-dsd:*,
+-http-get:*:audio/dsf:*,
+-http-get:*:audio/x-dsf:*,
+-http-get:*:audio/m4a:*,
+-http-get:*:audio/x-m4a:*,
+-http-get:*:audio/matroska:*,
+-http-get:*:audio/x-matroska:*,
+-http-get:*:audio/mp1:*,
+-http-get:*:audio/mp3:*,
+-http-get:*:audio/mp4:*,
+-http-get:*:audio/mpeg:*,
+-http-get:*:audio/x-mpeg:*,
+-http-get:*:audio/ogg:*,
+-http-get:*:audio/vorbis:*,
+-http-get:*:audio/x-ape:*,
+-http-get:*:audio/ape:*,
+-http-get:*:audio/x-monkeys-audio:*,
+-http-get:*:audio/wav:*,
+-http-get:*:audio/x-wav:*,
+-http-get:*:audio/wave:*,
+-http-get:*:audio/x-ms-wma:*,
+-http-get:*:audio/x-ogg:*,
+-http-get:*:audio/x-scpls:*,
+-http-get:*:audio/x-vorbis+ogg:*,
+-http-get:*:audio/x-vorbis:*,
+-http-get:*:audio/x-wavpack:*,
+-http-get:*:video/mp4:*
++http-get:*:audio/mpeg:*
+diff --git a/src/renderctl.cxx b/src/renderctl.cxx
+index 9b1108b..114a72c 100644
+--- a/src/renderctl.cxx
++++ b/src/renderctl.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include "renderctl.hxx"
+ 
++#include <charconv>
+ #include <stdlib.h>
+ 
+ #include <functional>
+@@ -42,6 +43,8 @@ using namespace UPnPP;
+ 
+ static const string 
+ sTpRender("urn:schemas-upnp-org:service:RenderingControl:1");
++static constexpr int minVolumeDb = -10240;
++
+ static const string sIdRender("urn:upnp-org:serviceId:RenderingControl");
+ 
+ RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool noev)
+@@ -56,6 +59,12 @@ RenderingControl::RenderingControl(UpMpd *dev, UpMpdMediaRenderer* udev, bool no
+                                               this, _1, _2, false));
+     m_udev->addActionMapping(this, "GetVolume", bind(&RenderingControl::getVolume, 
+                                               this, _1, _2, false));
++    m_udev->addActionMapping(this, "GetVolumeDB", bind(&RenderingControl::getVolume,
++                                              this, _1, _2, true));
++    m_udev->addActionMapping(this, "SetVolumeDB", bind(&RenderingControl::setVolume,
++                                              this, _1, _2, true));
++    m_udev->addActionMapping(this, "GetVolumeDBRange",
++                            bind(&RenderingControl::getVolumeDBRange, this, _1, _2));
+     m_udev->addActionMapping(this, "ListPresets", 
+                             bind(&RenderingControl::listPresets, this, _1, _2));
+     m_udev->addActionMapping(this, "SelectPreset", 
+@@ -74,6 +83,8 @@ enum RDCErrorCode {
+ const std::string RenderingControl::serviceErrString(int error) const
+ {
+     switch(error) {
++    case 601:
++        return "Volume unavailable";
+     case UPNP_AV_RC_INVALID_PRESET_NAME:
+         return "Rendering Control Invalid Preset Name";
+     case UPNP_AV_RC_INVALID_INSTANCE_ID:
+@@ -93,7 +104,7 @@ const std::string RenderingControl::serviceErrString(int error) const
+ //  VolumeDB
+ // LastChange contains all the variables that were changed since the last
+ // event. For us that's at most Mute, Volume, VolumeDB
+-// <Event xmlns=”urn:schemas-upnp-org:metadata-1-0/AVT_RCS">
++// <Event xmlns=”urn:schemas-upnp-org:metadata-1-0/RCS">
+ //   <InstanceID val=”0”>
+ //     <Mute channel=”Master” val=”0”/>
+ //     <Volume channel=”Master” val=”24”/>
+@@ -107,7 +118,7 @@ bool RenderingControl::rdstateMToU(unordered_map<string, string>& status)
+     if (volume < 0)
+         volume = 0;
+     status["Volume"] = SoapHelp::i2s(volume);
+-    //status["VolumeDB"] =  SoapHelp::i2s(percentodbvalue(volume));
++    status["VolumeDB"] = SoapHelp::i2s(percentodbvalue(volume));
+     status["Mute"] =  volume == 0 ? "1" : "0";
+     return true;
+ }
+@@ -122,13 +133,14 @@ bool RenderingControl::getEventData(bool all, std::vector<std::string>& names,
+ bool RenderingControl::getEventDataNoFlush(
+     bool all, std::vector<std::string>& names, std::vector<std::string>& values)
+ {
++    std::lock_guard lock(m_state_mutex);
+     unordered_map<string, string> newstate;
+     rdstateMToU(newstate);
+     if (all)
+         m_rdstate.clear();
+ 
+     string 
+-        chgdata("<Event xmlns=\"urn:schemas-upnp-org:metadata-1-0/AVT_RCS\">\n"
++        chgdata("<Event xmlns=\"urn:schemas-upnp-org:metadata-1-0/RCS\">\n"
+                 "<InstanceID val=\"0\">\n");
+ 
+     bool changefound = false;
+@@ -143,7 +155,7 @@ bool RenderingControl::getEventDataNoFlush(
+ 
+         chgdata += "<";
+         chgdata += it->first;
+-        if (!it->first.compare("Volume") || !it->first.compare("Mute")) {
++        if (it->first == "Volume" || it->first == "VolumeDB" || it->first == "Mute") {
+             chgdata += " channel=\"Master\"";
+         }
+         chgdata += " val=\"";
+@@ -189,7 +201,6 @@ void RenderingControl::onMpdEvent(const MpdStatus*)
+ //   specified in the service description (SCPD) available from the
+ //   device.
+ 
+-#if 0
+ int RenderingControl::getVolumeDBRange(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+     string channel;
+@@ -197,13 +208,11 @@ int RenderingControl::getVolumeDBRange(const SoapIncoming& sc, SoapOutgoing& dat
+     if (!sc.get("Channel", &channel) || channel.compare("Master")) {
+         return UPNP_E_INVALID_PARAM;
+     }
+-    data.addarg("MinValue", "-10240");
++    data.addarg("MinValue", SoapHelp::i2s(minVolumeDb));
+     data.addarg("MaxValue", "0");
+ 
+     return UPNP_E_SUCCESS;
+ }
+-#endif
+-
+ 
+ int RenderingControl::setMute(const SoapIncoming& sc, SoapOutgoing& data)
+ {
+@@ -215,14 +224,13 @@ int RenderingControl::setMute(const SoapIncoming& sc, SoapOutgoing& data)
+     if (!sc.get("DesiredMute", &desired)) {
+         return UPNP_E_INVALID_PARAM;
+     }
+-    if (desired[0] == 'F' || desired[0] == '0') {
+-        m_dev->setmute(false);
+-    } else if (desired[0] == 'T' || desired[0] == '1') {
+-        m_dev->setmute(true);
++    if (desired == "0" || desired == "false" || desired == "False") {
++        return m_dev->getvolume() > 0 || m_dev->setmute(false) ? UPNP_E_SUCCESS : 601;
++    } else if (desired == "1" || desired == "true" || desired == "True") {
++        return m_dev->getvolume() == 0 || m_dev->setmute(true) ? UPNP_E_SUCCESS : 601;
+     } else {
+         return UPNP_E_INVALID_PARAM;
+     }
+-    return UPNP_E_SUCCESS;
+ }
+ 
+ int RenderingControl::getMute(const SoapIncoming& sc, SoapOutgoing& data)
+@@ -250,16 +258,22 @@ int RenderingControl::setVolume(const SoapIncoming& sc, SoapOutgoing& data,
+     if (!sc.get("DesiredVolume", &desired)) {
+         return UPNP_E_INVALID_PARAM;
+     }
+-    int volume = atoi(desired.c_str());
++    int volume;
++    const char *end = desired.data() + desired.size();
++    const auto parsed = std::from_chars(desired.data(), end, volume);
++    if (parsed.ec != std::errc{} || parsed.ptr != end)
++        return UPNP_E_INVALID_PARAM;
+     if (isDb) {
+-        volume = dbvaluetopercent(volume);
+-    } 
+-    if (volume < 0 || volume > 100) {
++        if (volume < minVolumeDb || volume > 0)
++            return UPNP_E_INVALID_PARAM;
++        volume = volume == minVolumeDb ? 0 : dbvaluetopercent(volume);
++    } else if (volume < 0 || volume > 100) {
+         return UPNP_E_INVALID_PARAM;
+     }
+-    
+-    m_dev->setvolume(volume);
+-    return UPNP_E_SUCCESS;
++
++    if (m_dev->getvolume() == volume)
++        return UPNP_E_SUCCESS;
++    return m_dev->setvolume(volume) ? UPNP_E_SUCCESS : 601;
+ }
+ 
+ int RenderingControl::getVolume(const SoapIncoming& sc, SoapOutgoing& data,
+diff --git a/src/renderctl.hxx b/src/renderctl.hxx
+index 21b521c..1b214f0 100644
+--- a/src/renderctl.hxx
++++ b/src/renderctl.hxx
+@@ -17,6 +17,7 @@
+ #ifndef _RENDERING_H_X_INCLUDED_
+ #define _RENDERING_H_X_INCLUDED_
+ 
++#include <mutex>
+ #include <string>
+ #include <vector>
+ #include <unordered_map>
+@@ -44,12 +45,14 @@ private:
+                                      std::vector<std::string>& values);
+     bool rdstateMToU(std::unordered_map<std::string, std::string>& status);
+     int setMute(const SoapIncoming& sc, SoapOutgoing& data);
++    int getVolumeDBRange(const UPnPP::SoapIncoming&, UPnPP::SoapOutgoing&);
+     int getMute(const SoapIncoming& sc, SoapOutgoing& data);
+     int setVolume(const SoapIncoming& sc, SoapOutgoing& data, bool isDb);
+     int getVolume(const SoapIncoming& sc, SoapOutgoing& data, bool isDb);
+     int listPresets(const SoapIncoming& sc, SoapOutgoing& data);
+     int selectPreset(const SoapIncoming& sc, SoapOutgoing& data);
+ 
++    std::mutex m_state_mutex;
+     UpMpd *m_dev;
+     UpMpdMediaRenderer *m_udev;
+     // State variable storage
