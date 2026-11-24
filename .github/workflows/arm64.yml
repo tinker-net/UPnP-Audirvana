@@ -73,7 +73,7 @@ jobs:
           sha256sum --check "$archive.sha256"
           gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --prerelease --title "UPnP-Audirvana $tag" \
-            --notes 'El modo renderer omite la búsqueda de plugins de MediaServer. Pruebas UPnP en ARM64. El aviso de Audirvāna sobre GetCurrentTransportActions sigue bajo investigación.' \
+            --notes 'GetCurrentTransportActions anuncia Stop con la cola vacía. Validación con Audirvāna Studio pendiente.' \
             "$archive" "$archive.sha256" "UPnP-Audirvana-$tag-source.tar.gz"
       - name: Attach package to release
         if: github.event_name == 'release'

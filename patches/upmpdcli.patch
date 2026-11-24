@@ -325,7 +325,7 @@ index 6d90a98..6341c17 100644
      case MpdStatus::MPDS_PLAY: tactions += "Pause,Stop,Seek"; break;
      case MpdStatus::MPDS_PAUSE: tactions += "Play,Stop,Seek"; break;
 -    default: tactions += "Play";
-+    default: if (mpds.qlen > 0) tactions = "Play"; break;
++    default: tactions = mpds.qlen > 0 ? "Play" : "Stop"; break;
      }
 +    if (mpds.songpos >= 0 && mpds.songpos + 1 < mpds.qlen)
 +        tactions += tactions.empty() ? "Next" : ",Next";

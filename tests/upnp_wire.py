@@ -210,7 +210,9 @@ def check(location, host, events, media_requests):
 
     assert "audio/wav" in soap("ConnectionManager", "GetProtocolInfo")["Sink"]
     avt("SetPlayMode", NewPlayMode="NORMAL")
-    assert avt("GetCurrentTransportActions")["Actions"] == ""
+    assert avt("GetCurrentTransportActions")["Actions"] == "Stop"
+    avt("Stop")
+    assert avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED"
     soap("AVTransport", "SetPlayMode", InstanceID=0, fault=712, NewPlayMode="SHUFFLE")
     soap("AVTransport", "GetTransportInfo", InstanceID=99, fault=718)
     assert avt("GetTransportSettings")["PlayMode"] == "NORMAL"
@@ -254,7 +256,9 @@ def check(location, host, events, media_requests):
     avt("SetAVTransportURI", CurrentURI="", CurrentURIMetaData="")
     assert avt("GetMediaInfo")["CurrentURI"] == ""
     assert avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED"
-    assert avt("GetCurrentTransportActions")["Actions"] == ""
+    assert avt("GetCurrentTransportActions")["Actions"] == "Stop"
+    avt("Stop")
+    assert avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED"
     next_metadata = metadata.replace('id="1"', 'id="2"')
     avt("SetAVTransportURI", CurrentURI=uri, CurrentURIMetaData=metadata)
     avt("SetNextAVTransportURI", NextURI=uri, NextURIMetaData=next_metadata)
