@@ -623,7 +623,7 @@ index 6d90a98..6341c17 100644
          // Clean up old song ids
          if (!(m_dev->getopts().options & UpMpd::upmpdOwnQueue)) {
              for (auto id : m_songids) {
-@@ -522,14 +556,16 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
+@@ -522,14 +556,22 @@ int AVTransport::setAVTransportURI(const SoapIncoming& sc, SoapOutgoing& data, b
  
  int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
  {
@@ -640,8 +640,16 @@ index 6d90a98..6341c17 100644
      data.addarg("TrackMetaData", m_curMetadata);
 -    data.addarg("TrackURI", SoapHelp::xmlQuote(m_uri));
 +    data.addarg("TrackURI", m_uri);
-     data.addarg("RelTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
-     data.addarg("AbsTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
+-    data.addarg("RelTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
+-    data.addarg("AbsTime", is_song ? upnpduration(mpds.songelapsedms) : "0:00:00");
++    string position = "0:00:00";
++    if (is_song) {
++        char fraction[5];
++        std::snprintf(fraction, sizeof(fraction), ".%03u", mpds.songelapsedms % 1000);
++        position = upnpduration(mpds.songelapsedms) + fraction;
++    }
++    data.addarg("RelTime", position);
++    data.addarg("AbsTime", position);
      data.addarg("RelCount", "0");
 @@ -539,7 +575,7 @@ int AVTransport::getPositionInfo(const SoapIncoming& sc, SoapOutgoing& data)
  

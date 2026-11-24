@@ -33,7 +33,7 @@ index 02184d3..d1909be 100644
  static void version()
  {
 -	fmt::print("Music Player Daemon " VERSION " ({})"
-+	fmt::print("UPnP-Audirvana v0.1.0-preview.5 (Music Player Daemon " VERSION ", {})"
++	fmt::print("UPnP-Audirvana v0.1.0-preview.6 (Music Player Daemon " VERSION ", {})"
  		   "\n"
  		   "Copyright 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
  		   "Copyright 2008-2025 Max Kellermann <max.kellermann@gmail.com>\n"

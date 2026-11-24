@@ -80,7 +80,7 @@ cp "$work/libnpupnp-6.3.1/COPYING" "$stage/share/licenses/libnpupnp"
 mkdir -p "$work/stage/etc/upnp-audirvana" "$work/stage/etc/systemd/system"
 cp "$project"/packaging/*.conf "$work/stage/etc/upnp-audirvana/"
 cp "$project/packaging/upnp-audirvana.service" "$work/stage/etc/systemd/system/"
-archive="UPnP-Audirvana-v0.1.0-preview.5-$(dpkg --print-architecture).tar.gz"
+archive="UPnP-Audirvana-v0.1.0-preview.6-$(dpkg --print-architecture).tar.gz"
 tar -czf "$work/$archive" -C "$work/stage" opt etc
 mv "$work/$archive" "$project/$archive"
 printf '\n%s\n' "$project/$archive"
@@ -93,7 +93,7 @@ if [ "${SOURCE_BUNDLE:-0}" = 1 ]; then
     git -C "$work/mpd" archive --format=tar.gz --prefix=mpd-0.24.5/ \
         "$mpd_revision" > "$source_dir/upstream/mpd-0.24.5.tar.gz"
     cp "$build/cache/"*.tar.gz "$source_dir/upstream/"
-    tar -czf "$work/UPnP-Audirvana-v0.1.0-preview.5-source.tar.gz" \
+    tar -czf "$work/UPnP-Audirvana-v0.1.0-preview.6-source.tar.gz" \
         -C "$work" UPnP-Audirvana-source
-    mv "$work/UPnP-Audirvana-v0.1.0-preview.5-source.tar.gz" "$project/"
+    mv "$work/UPnP-Audirvana-v0.1.0-preview.6-source.tar.gz" "$project/"
 fi

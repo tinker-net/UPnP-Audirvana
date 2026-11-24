@@ -2,6 +2,7 @@
 import http.client
 import io
 import os
+import re
 from pathlib import Path
 from queue import Queue
 import socket
@@ -240,7 +241,10 @@ def check(location, host, events, media_requests):
     assert avt("GetMediaInfo")["CurrentURI"] == uri
     avt("Play", Speed=1)
     assert media_requests.get(timeout=5) == "/test.pcm?token=a%2Fb&part=1"
-    assert avt("GetPositionInfo")["TrackURI"] == uri
+    position = avt("GetPositionInfo")
+    assert position["TrackURI"] == uri
+    assert re.fullmatch(r"\d+:\d{2}:\d{2}\.\d{3}", position["RelTime"]), position
+    assert position["AbsTime"] == position["RelTime"]
     assert avt("GetCurrentTransportActions")["Actions"] == "Pause,Stop,Seek"
     assert avt("GetTransportInfo")["CurrentTransportState"] == "PLAYING"
     avt("Pause")
