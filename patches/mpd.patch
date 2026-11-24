@@ -25,7 +25,7 @@ index 72e86b9..137ad1d 100644
      fmt_dep,
    ],
 diff --git a/src/CommandLine.cxx b/src/CommandLine.cxx
-index 02184d3..6cdb547 100644
+index 02184d3..73fa127 100644
 --- a/src/CommandLine.cxx
 +++ b/src/CommandLine.cxx
 @@ -103,7 +103,7 @@ static constexpr Domain cmdline_domain("cmdline");
@@ -33,7 +33,7 @@ index 02184d3..6cdb547 100644
  static void version()
  {
 -	fmt::print("Music Player Daemon " VERSION " ({})"
-+	fmt::print("UPnP-Audirvana v0.1.0-preview.2 (Music Player Daemon " VERSION ", {})"
++	fmt::print("UPnP-Audirvana v0.1.0-preview.3 (Music Player Daemon " VERSION ", {})"
  		   "\n"
  		   "Copyright 2003-2007 Warren Dukes <warren.dukes@gmail.com>\n"
  		   "Copyright 2008-2025 Max Kellermann <max.kellermann@gmail.com>\n"

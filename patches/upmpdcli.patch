@@ -113,6 +113,30 @@ index b7cff6d..a00cec6 100644
 -install_man('man/upmpdcli.1')
 -install_man('man/upmpdcli.conf.5')
 +install_data(upmpdcli_data, install_dir: get_option('datadir') / 'upnp-audirvana')
+diff --git a/src/AVTransport.xml b/src/AVTransport.xml
+index cb40cca..9828214 100644
+--- a/src/AVTransport.xml
++++ b/src/AVTransport.xml
+@@ -160,9 +160,8 @@
+       <sendEventsAttribute>no</sendEventsAttribute>
+       <dataType>i4</dataType>
+     </stateVariable>
+-    <stateVariable> <Optional />
++    <stateVariable sendEvents="no">
+     <name>CurrentTransportActions</name>
+-    <sendEventsAttribute>no</sendEventsAttribute>
+     <dataType>string</dataType>
+     </stateVariable>
+     <stateVariable>
+@@ -496,7 +495,7 @@
+       </argument>
+     </argumentList>
+     </action>
+-    <action> <Optional />
++    <action>
+     <name>GetCurrentTransportActions</name>
+     <argumentList>
+       <argument>
 diff --git a/src/RenderingControl.xml b/src/RenderingControl.xml
 index ecdc160..0dda1a9 100644
 --- a/src/RenderingControl.xml
@@ -206,7 +230,7 @@ index ecdc160..0dda1a9 100644
        <name>A_ARG_TYPE_Channel</name>
        <dataType>string</dataType>
 diff --git a/src/avtransport.cxx b/src/avtransport.cxx
-index 6d90a98..eff42de 100644
+index 6d90a98..6341c17 100644
 --- a/src/avtransport.cxx
 +++ b/src/avtransport.cxx
 @@ -19,7 +19,9 @@
@@ -792,15 +816,6 @@ index 6d90a98..eff42de 100644
      string playmode = mpdsToPlaymode(mpds);
      data.addarg("PlayMode", playmode);
      data.addarg("RecQualityMode", "NOT_IMPLEMENTED");
-@@ -722,7 +763,7 @@ int AVTransport::getTransportSettings(const SoapIncoming& sc, SoapOutgoing& data
- 
- int AVTransport::getCurrentTransportActions(const SoapIncoming& sc, SoapOutgoing& data)
- {
--    const MpdStatus &mpds = m_dev->getMpdStatus();
-+    const MpdStatus &mpds = m_dev->getmpdcli()->getStatus(true);
-     data.addarg("Actions", mpdsToTActions(mpds));
-     return UPNP_E_SUCCESS;
- }
 @@ -731,12 +772,12 @@ int AVTransport::seek(const SoapIncoming& sc, SoapOutgoing& data)
  {
      string unit;

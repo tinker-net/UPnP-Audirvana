@@ -154,7 +154,15 @@ def check(location, host, events, media_requests):
         services[kind] = name, urljoin(location, control), urljoin(location, event)
         status, _, document = request("GET", urljoin(location, scpd))
         assert status == 200, status
-        assert ET.fromstring(document).find("{*}actionList") is not None
+        actions = ET.fromstring(document).find("{*}actionList")
+        assert actions is not None
+        if kind == "AVTransport":
+            action = next(a for a in actions if a.findtext("{*}name") == "GetCurrentTransportActions")
+            assert action.find("{*}Optional") is None
+            args = action.findall("./{*}argumentList/{*}argument")
+            assert [(a.findtext("{*}name"), a.findtext("{*}direction")) for a in args] == [
+                ("InstanceID", "in"), ("Actions", "out"),
+            ]
 
     assert services.keys() == {"AVTransport", "RenderingControl", "ConnectionManager"}
 
@@ -201,6 +209,7 @@ def check(location, host, events, media_requests):
 
     assert "audio/wav" in soap("ConnectionManager", "GetProtocolInfo")["Sink"]
     avt("SetPlayMode", NewPlayMode="NORMAL")
+    assert avt("GetCurrentTransportActions")["Actions"] == ""
     soap("AVTransport", "SetPlayMode", InstanceID=0, fault=712, NewPlayMode="SHUFFLE")
     soap("AVTransport", "GetTransportInfo", InstanceID=99, fault=718)
     assert avt("GetTransportSettings")["PlayMode"] == "NORMAL"
@@ -218,6 +227,7 @@ def check(location, host, events, media_requests):
     avt("SetAVTransportURI", CurrentURI=uri, CurrentURIMetaData=metadata)
     assert avt("GetMediaInfo")["CurrentURI"] == uri
     assert avt("GetMediaInfo")["CurrentURIMetaData"] == metadata
+    assert avt("GetCurrentTransportActions")["Actions"] == "Play"
     avt("SetNextAVTransportURI", NextURI=uri, NextURIMetaData=metadata)
     assert avt("GetMediaInfo")["NextURI"] == uri
     avt("SetNextAVTransportURI", NextURI="", NextURIMetaData="")
@@ -228,10 +238,12 @@ def check(location, host, events, media_requests):
     avt("Play", Speed=1)
     assert media_requests.get(timeout=5) == "/test.pcm?token=a%2Fb&part=1"
     assert avt("GetPositionInfo")["TrackURI"] == uri
+    assert avt("GetCurrentTransportActions")["Actions"] == "Pause,Stop,Seek"
     assert avt("GetTransportInfo")["CurrentTransportState"] == "PLAYING"
     avt("Pause")
     avt("Pause")
     assert avt("GetTransportInfo")["CurrentTransportState"] == "PAUSED_PLAYBACK"
+    assert avt("GetCurrentTransportActions")["Actions"] == "Play,Stop,Seek"
     avt("Play", Speed=1)
     avt("Play", Speed=1)
     avt("SetNextAVTransportURI", NextURI="", NextURIMetaData="")
@@ -241,6 +253,7 @@ def check(location, host, events, media_requests):
     avt("SetAVTransportURI", CurrentURI="", CurrentURIMetaData="")
     assert avt("GetMediaInfo")["CurrentURI"] == ""
     assert avt("GetTransportInfo")["CurrentTransportState"] == "STOPPED"
+    assert avt("GetCurrentTransportActions")["Actions"] == ""
     next_metadata = metadata.replace('id="1"', 'id="2"')
     avt("SetAVTransportURI", CurrentURI=uri, CurrentURIMetaData=metadata)
     avt("SetNextAVTransportURI", NextURI=uri, NextURIMetaData=next_metadata)

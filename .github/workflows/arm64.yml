@@ -60,6 +60,21 @@ jobs:
             UPnP-Audirvana-v*-arm64.tar.gz.sha256
             UPnP-Audirvana-v*-source.tar.gz
           if-no-files-found: error
+      - name: Publish verified preview
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[publish preview]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -- UPnP-Audirvana-v*-arm64.tar.gz
+          test "$#" -eq 1
+          archive=$1
+          tag=${archive#UPnP-Audirvana-}
+          tag=${tag%-arm64.tar.gz}
+          sha256sum --check "$archive.sha256"
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --prerelease --title "UPnP-Audirvana $tag" \
+            --notes 'Revisión de GetCurrentTransportActions y prueba SOAP en ARM64. Validación con Audirvāna Studio pendiente.' \
+            "$archive" "$archive.sha256" "UPnP-Audirvana-$tag-source.tar.gz"
       - name: Attach package to release
         if: github.event_name == 'release'
         env:
