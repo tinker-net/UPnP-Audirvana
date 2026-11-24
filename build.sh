@@ -83,3 +83,16 @@ archive="UPnP-Audirvana-v0.1.0-preview.1-$(dpkg --print-architecture).tar.gz"
 tar -czf "$work/$archive" -C "$work/stage" opt etc
 mv "$work/$archive" "$project/$archive"
 printf '\n%s\n' "$project/$archive"
+
+if [ "${SOURCE_BUNDLE:-0}" = 1 ]; then
+    source_dir="$work/UPnP-Audirvana-source"
+    mkdir -p "$source_dir/upstream"
+    cp "$project"/build.sh "$project"/README.md "$project"/COPYING "$source_dir/"
+    cp -R "$project"/patches "$project"/packaging "$source_dir/"
+    git -C "$work/mpd" archive --format=tar.gz --prefix=mpd-0.24.5/ \
+        "$mpd_revision" > "$source_dir/upstream/mpd-0.24.5.tar.gz"
+    cp "$build/cache/"*.tar.gz "$source_dir/upstream/"
+    tar -czf "$work/UPnP-Audirvana-v0.1.0-preview.1-source.tar.gz" \
+        -C "$work" UPnP-Audirvana-source
+    mv "$work/UPnP-Audirvana-v0.1.0-preview.1-source.tar.gz" "$project/"
+fi

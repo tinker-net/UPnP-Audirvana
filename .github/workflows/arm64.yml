@@ -26,7 +26,7 @@ jobs:
             libmpdclient-dev libmpg123-dev libsndfile1-dev
       - uses: actions/checkout@v4
       - name: Build ARM64 package
-        run: JOBS=4 ./build.sh
+        run: JOBS=4 SOURCE_BUNDLE=1 ./build.sh
       - name: Check packaged executable
         shell: bash
         run: |
@@ -42,10 +42,11 @@ jobs:
           path: |
             UPnP-Audirvana-v*-arm64.tar.gz
             UPnP-Audirvana-v*-arm64.tar.gz.sha256
+            UPnP-Audirvana-v*-source.tar.gz
           if-no-files-found: error
       - name: Attach package to release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" UPnP-Audirvana-v*-arm64.tar.gz*
+        run: gh release upload "$RELEASE_TAG" UPnP-Audirvana-v*-arm64.tar.gz* UPnP-Audirvana-v*-source.tar.gz
