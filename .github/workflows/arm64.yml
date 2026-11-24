@@ -5,12 +5,23 @@ on:
     branches: [main]
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful ARM64 build that produced the release files
+        required: true
+        type: string
+      release_tag:
+        description: Existing release tag to attach the files to
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   build-arm64:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04-arm
     container: debian:13
     permissions:
@@ -49,4 +60,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$RELEASE_TAG" UPnP-Audirvana-v*-arm64.tar.gz* UPnP-Audirvana-v*-source.tar.gz
+        run: gh release upload --repo "$GITHUB_REPOSITORY" "$RELEASE_TAG" UPnP-Audirvana-v*-arm64.tar.gz* UPnP-Audirvana-v*-source.tar.gz
+
+  attach-existing-package:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: UPnP-Audirvana-DietPi-arm64
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify and attach package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          sha256sum --check UPnP-Audirvana-v*-arm64.tar.gz.sha256
+          gh release upload --repo "$GITHUB_REPOSITORY" "$RELEASE_TAG" \
+            "UPnP-Audirvana-$RELEASE_TAG-arm64.tar.gz" \
+            "UPnP-Audirvana-$RELEASE_TAG-arm64.tar.gz.sha256" \
+            "UPnP-Audirvana-$RELEASE_TAG-source.tar.gz"
